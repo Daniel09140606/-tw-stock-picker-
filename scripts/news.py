@@ -31,6 +31,13 @@ NEG = ["衰退", "下滑", "減少", "年減", "虧損", "轉虧", "下修", "�
        "違約", "訴訟", "罰", "停工", "裁員", "延後", "低於預期", "警示", "處置", "利空", "疲", "砍單", "示警", "跌破"]
 
 
+# 論壇貼文與自動產生的盤中快訊不算新聞
+SKIP = ["股市爆料同學會", "同學風向", "討論牆", "盤中速報", "爆料", "PTT", "Mobile01", "排行榜", "成交量排行", "漲幅排行"]
+# 主要財經媒體優先排在前面
+GOOD = ["經濟日報", "工商時報", "中時", "自由", "鉅亨", "cnyes", "MoneyDJ", "moneydj", "UDN", "聯合", "今周刊", "ETtoday",
+        "TVBS", "中央社", "財訊", "商業周刊", "數位時代", "科技新報", "優分析", "Yahoo", "天下", "富聯網", "旺得富", "台視", "BigGo"]
+
+
 def tone(title: str) -> int:
     p = sum(1 for w in POS if w in title)
     n = sum(1 for w in NEG if w in title)
@@ -55,6 +62,8 @@ def google_news(code: str, name: str) -> list[list]:
             title = title[: -len(src) - 3].strip()
         if not title or (name not in title and code not in title):
             continue  # 只留標題有提到這家公司的
+        if any(w in title or w in src for w in SKIP):
+            continue
         key = re.sub(r"\W", "", title)[:30]
         if key in seen:
             continue
@@ -66,8 +75,11 @@ def google_news(code: str, name: str) -> list[list]:
         if when < cutoff:
             continue
         out.append([title, src, when.astimezone(TPE).strftime("%Y-%m-%d"), it.findtext("link") or "", tone(title)])
+    good = lambda x: any(g in x[1] for g in GOOD)
+    out.sort(key=lambda x: (good(x), x[2]), reverse=True)   # 主流媒體優先，再依日期
+    out = out[:PER_STOCK]
     out.sort(key=lambda x: x[2], reverse=True)
-    return out[:PER_STOCK]
+    return out
 
 
 def announcements(log: dict) -> dict[str, list]:
