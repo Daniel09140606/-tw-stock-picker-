@@ -50,3 +50,6 @@ alter table public.user_settings add column if not exists groups jsonb not null 
 
 -- 2026/10/5 新增：購買單位（odd＝可買零股，lot＝只買整張）
 alter table public.user_settings add column if not exists unit text not null default 'odd' check (unit in ('odd', 'lot'));
+
+-- 2026/10/5 新增：配置建議選的公司規模（L 大型、M 中型、S 小型、E ETF）
+alter table public.user_settings add column if not exists sizes jsonb not null default '["L","M","S","E"]'::jsonb;

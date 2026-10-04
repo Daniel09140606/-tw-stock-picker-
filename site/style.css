@@ -221,3 +221,30 @@ table.tbl.fin td.num,table.tbl.fin th.num{white-space:nowrap;text-align:right}
 .tone{font-size:11.5px;font-weight:600;padding:0 6px;border-radius:99px}
 .tone.pos{background:var(--up-soft);color:var(--up)}
 .tone.neg{background:var(--down-soft);color:var(--down)}
+
+/* 公司規模多選 */
+.seg.seg4{grid-template-columns:repeat(4,1fr)}
+
+/* 上下游產業鏈 */
+.chainbox{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.chainbox h4{font-size:12px;letter-spacing:.08em;color:var(--muted);margin:0 0 6px;font-weight:500}
+.ctabs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.ctabs button{font:500 12.5px var(--f-body);padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--muted);cursor:pointer}
+.ctabs button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.cwhere{font-size:14px;margin:4px 0 10px;line-height:1.6}
+.cgrp{border-left:3px solid var(--line);padding:2px 0 2px 12px;margin:10px 0}
+.cgrp.up{border-left-color:var(--c2)}
+.cgrp.down{border-left-color:var(--c4)}
+.cgrp.same{border-left-color:var(--accent)}
+.cgrp h5{margin:0 0 6px;font:600 13px var(--f-body);color:var(--ink)}
+.cseg{display:grid;grid-template-columns:minmax(90px,150px) 1fr;gap:4px 10px;align-items:start;margin:6px 0}
+.cseg-n{font-size:12.5px;color:var(--muted);padding-top:4px}
+.cchips{display:flex;flex-wrap:wrap;gap:5px}
+.cchip{font:500 12.5px var(--f-body);display:inline-flex;align-items:baseline;gap:4px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink);cursor:pointer}
+.cchip code{font:500 11.5px var(--f-data);color:var(--muted)}
+.cchip small{font-size:9px;color:var(--accent);letter-spacing:-1px}
+.cchip.rec{border-color:var(--accent)}
+.cchip:hover{background:var(--line)}
+.cmore{width:100%}
+.cmore summary{font-size:12.5px;color:var(--muted);cursor:pointer;margin:4px 0}
+@media (max-width:640px){.cseg{grid-template-columns:1fr}.cseg-n{padding-top:0}}

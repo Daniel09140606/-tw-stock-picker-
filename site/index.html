@@ -67,6 +67,16 @@
           <p class="hint" id="unitHint"></p>
         </div>
         <div>
+          <span class="lbl">公司規模（可複選）</span>
+          <div class="seg seg4" id="sizes">
+            <button type="button" data-v="L" aria-pressed="true">大型股</button>
+            <button type="button" data-v="M" aria-pressed="true">中型股</button>
+            <button type="button" data-v="S" aria-pressed="true">小型股</button>
+            <button type="button" data-v="E" aria-pressed="true">ETF</button>
+          </div>
+          <p class="hint" id="sizeHint"></p>
+        </div>
+        <div>
           <label class="lbl" for="nPick">配置幾檔</label>
           <select id="nPick"><option value="0">依預算自動</option><option value="3">3 檔</option><option value="5">5 檔</option><option value="8">8 檔</option><option value="10">10 檔</option><option value="15">15 檔</option></select>
           <p class="hint">5 檔以下每個族群最多 1 檔，超過 5 檔每個族群最多 2 檔。</p>

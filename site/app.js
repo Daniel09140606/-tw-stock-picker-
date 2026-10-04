@@ -19,9 +19,10 @@ const FINLAB = c => `https://finlab.finance/stocks/${c}`;
 const GOODINFO = c => `https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID=${c}`;
 
 let DB = null, S = [], BY = {};
-const PREF_KEYS = ["budget", "tNum", "tUnit", "r", "n", "groups", "unit"];
-let state = {budget: 100000, tNum: 1, tUnit: 365, r: 2, n: 0, groups: [], unit: "odd", group: "theme", mkt: "all", size: "all", afford: "all", sort: "score", per: 20, chip: "all", q: "", page: 1};
+const PREF_KEYS = ["budget", "tNum", "tUnit", "r", "n", "groups", "unit", "sizes"];
+let state = {budget: 100000, tNum: 1, tUnit: 365, r: 2, n: 0, groups: [], unit: "odd", sizes: ["L", "M", "S", "E"], group: "theme", mkt: "all", size: "all", afford: "all", sort: "score", per: 20, chip: "all", q: "", page: 1};
 try { const s = JSON.parse(localStorage.getItem("picker-ui")); if (s) Object.assign(state, s); } catch (e) {}
+if (!Array.isArray(state.sizes) || !state.sizes.length) state.sizes = ["L", "M", "S", "E"];
 let sb = null, user = null, holdings = [], watch = new Set();
 
 /* ---------------- local guest storage ---------------- */
@@ -59,6 +60,8 @@ const groupKey = s => state.group === "theme" ? (s.themes[0] || null) : s.ind;
 const groupName = k => state.group === "theme" ? (DB.themes[k]?.n || k) : k;
 const divKey = s => s.themes[0] || s.ind;   // 配置分散用
 const isRec = s => s.liq && scoreOf(s) >= 2;
+const sizeOk = s => state.sizes.includes(s.size);   // 配置建議選的公司規模
+const allSizes = () => ["L", "M", "S", "E"].every(k => state.sizes.includes(k));
 
 async function loadData() {
   const r = await fetch("data/stocks.json", {cache: "no-cache"});
@@ -93,7 +96,7 @@ function sizeRows(ws, B, g) {
 function plan() {
   if (state.groups && state.groups.length) return planGroups();
   const B = state.budget, r = state.r;
-  const pool = S.filter(s => isRec(s) && (r > 1 || s.risk <= 2) && (!isLot() || lotCost(s) <= B * 0.6));
+  const pool = S.filter(s => isRec(s) && sizeOk(s) && (r > 1 || s.risk <= 2) && (!isLot() || lotCost(s) <= B * 0.6));
   const adj = s => scoreOf(s) + (r === 1 && s.risk === 1 ? 1 : 0) + (r === 3 && s.risk === 3 ? 1 : 0) - (r === 2 && s.risk === 3 ? 1 : 0);
   const capOf = s => s.etf ? 1e12 : (s.cap || 0);   // 同分時 ETF 優先，其次市值大的
   pool.sort((a, b) => adj(b) - adj(a) || capOf(b) - capOf(a));
@@ -131,9 +134,9 @@ const gMembers = k => k.startsWith("t:") ? S.filter(s => s.themes.includes(k.sli
 const median = a => { const v = a.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); if (!v.length) return null; const m = Math.floor(v.length / 2); return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
 let GSTAT = null;
 function groupStats(k) {
-  const key = modeKey() + "|" + k;
+  const key = modeKey() + "|" + state.sizes.join("") + "|" + k;
   GSTAT = GSTAT || {}; if (GSTAT[key]) return GSTAT[key];
-  const mem = gMembers(k).filter(s => s.liq), recs = mem.filter(s => scoreOf(s) >= 2);
+  const mem = gMembers(k).filter(s => s.liq && sizeOk(s)), recs = mem.filter(s => scoreOf(s) >= 2);
   const top = recs.map(scoreOf).sort((a, b) => b - a).slice(0, 3);
   const avgTop = top.length ? top.reduce((a, b) => a + b, 0) / top.length : 0;
   const medRev = median(mem.map(s => s.rev > 300 ? null : s.rev));
@@ -168,7 +171,7 @@ function planGroups() {
   const used = new Set(), out = [];
   for (const g of sel) {
     const wg = +g.w / totW, Bg = B * wg;
-    const pool = gMembers(g.k).filter(s => isRec(s) && (r > 1 || s.risk <= 2) && !used.has(s.code) && (isLot() ? lotCost(s) : s.price * 1.001425) <= Bg)
+    const pool = gMembers(g.k).filter(s => isRec(s) && sizeOk(s) && (r > 1 || s.risk <= 2) && !used.has(s.code) && (isLot() ? lotCost(s) : s.price * 1.001425) <= Bg)
       .sort((a, b) => adj(b) - adj(a) || capOf(b) - capOf(a));
     let want = Math.max(1, Math.round(N * wg)), idx = 0, picks = pool.slice(0, want); idx = picks.length;
     for (let it = 0; it < 20 && picks.length; it++) {
@@ -381,6 +384,55 @@ function attachNews(root) {
   });
 }
 
+/* ---------------- 上下游（產業價值鏈資訊平台，每週更新） ---------------- */
+let CHAIN = null, CIDX = null, chainLoading = null;
+function loadChains() {
+  if (!chainLoading) chainLoading = fetch("data/chains.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).catch(() => null).then(j => {
+    CHAIN = j || {ind: {}}; CIDX = {};
+    Object.entries(CHAIN.ind).forEach(([ic, [, segs]]) => segs.forEach((sg, si) => sg[3].forEach(([sub, codes]) => codes.forEach(c => {
+      const a = CIDX[c] = CIDX[c] || []; let hit = a.find(x => x.ic === ic && x.si === si);
+      if (!hit) a.push(hit = {ic, si, subs: []}); hit.subs.push(sub); }))));
+  });
+  return chainLoading;
+}
+const ICURL = ic => `https://ic.tpex.org.tw/introduce.php?ic=${ic}`;
+const rankS = (a, b) => (isRec(b) - isRec(a)) || scoreOf(b) - scoreOf(a) || (b.cap || 0) - (a.cap || 0);
+function chipsHTML(codes, self) {
+  const list = [...new Set(codes)].filter(c => c !== self && BY[c]).map(c => BY[c]).sort(rankS);
+  if (!list.length) return `<span class="hint" style="margin:0">這個環節沒有上市櫃公司（多為興櫃或未上市）。</span>`;
+  const chip = s => `<button type="button" class="cchip${isRec(s) ? " rec" : ""}" data-an="${s.code}" title="${esc(s.ind)} · ${SIZENAME[s.size]} · 評分 ${scoreOf(s)}/5"><code>${s.code}</code>${esc(s.name)}<small>${"●".repeat(scoreOf(s))}</small></button>`;
+  const head = list.slice(0, 8).map(chip).join(""), more = list.slice(8);
+  return `<div class="cchips">${head}${more.length ? `<details class="cmore"><summary>再看 ${more.length} 家</summary><div class="cchips">${more.map(chip).join("")}</div></details>` : ""}</div>`;
+}
+function chainIndHTML(s, hit) {
+  const [name, segs] = CHAIN.ind[hit.ic], streams = [...new Set(segs.map(x => x[2]))], me = segs[hit.si], myT = streams.indexOf(me[2]);
+  const codesOf = sg => sg[3].flatMap(x => x[1]);
+  const peers = me[3].filter(x => hit.subs.includes(x[0])).flatMap(x => x[1]);
+  const where = `${esc(name)}${me[2] ? ` › ${esc(me[2])}` : ""} › <b>${esc(me[1])}</b>${hit.subs.some(x => x !== me[1]) ? `（${hit.subs.map(esc).join("、")}）` : ""}`;
+  const block = (title, cls, list) => list.length ? `<div class="cgrp ${cls}"><h5>${title}</h5>${list.map(sg => `<div class="cseg"><span class="cseg-n">${esc(sg[1])}</span>${chipsHTML(codesOf(sg), s.code)}</div>`).join("")}</div>` : "";
+  let body = block("同環節的同業", "same", [[0, hit.subs.join("、"), "", [["", peers]]]]);
+  if (streams.length > 1) {
+    const by = t => segs.filter((sg, i) => i !== hit.si && streams.indexOf(sg[2]) === t);
+    streams.forEach((st, t) => { if (t === myT) { body += block(`同一層：${esc(st)}其他環節`, "mid", by(t)); return; }
+      body += block(`${t < myT ? "↑ 上游方向" : "↓ 下游方向"}：${esc(st)}`, t < myT ? "up" : "down", by(t)); });
+  } else body += block("同產業鏈其他環節", "mid", segs.filter((sg, i) => i !== hit.si));
+  return `<p class="cwhere">${where}</p>${body}<p class="hint">來源：<a href="${ICURL(hit.ic)}" target="_blank" rel="noopener">產業價值鏈資訊平台・${esc(name)}</a>（證交所、櫃買中心）</p>`;
+}
+function chainHTML(s, pick = 0) {
+  const hits = (CIDX[s.code] || []).slice().sort((a, b) => (s.ind && CHAIN.ind[b.ic][0].includes(s.ind.replace(/業$/, ""))) - (s.ind && CHAIN.ind[a.ic][0].includes(s.ind.replace(/業$/, ""))));
+  if (!hits.length) return `<div class="chainbox"><h4>上下游產業鏈</h4><p class="hint">產業價值鏈資訊平台沒有收錄這家公司${s.etf ? "（ETF 不屬於單一產業鏈）" : ""}。</p></div>`;
+  const tabs = hits.length > 1 ? `<div class="ctabs" role="tablist">${hits.slice(0, 12).map((h, i) => `<button type="button" role="tab" data-ctab="${i}" aria-selected="${i === pick}">${esc(CHAIN.ind[h.ic][0])}・${esc(CHAIN.ind[h.ic][1][h.si][1])}</button>`).join("")}${hits.length > 12 ? `<span class="hint" style="margin:0">另有 ${hits.length - 12} 個環節</span>` : ""}</div>` : "";
+  return `<div class="chainbox"><div class="news-h"><h4>上下游產業鏈</h4><span class="hint" style="margin:0">${hits.length > 1 ? `出現在 ${hits.length} 個環節 · ` : ""}點公司名稱看分析</span></div>${tabs}<div class="cbody">${chainIndHTML(s, hits[Math.min(pick, hits.length - 1)])}</div></div>`;
+}
+function attachChain(root) {
+  root.querySelectorAll("[data-chain]").forEach(el => {
+    const s = BY[el.dataset.chain]; if (!s) return;
+    const draw = () => { el.innerHTML = chainHTML(s); el.onclick = e => { const t = e.target.closest("[data-ctab]"); if (t) el.innerHTML = chainHTML(s, +t.dataset.ctab); }; };
+    if (CHAIN) { draw(); return; }
+    el.innerHTML = `<p class="hint">載入上下游中…</p>`; loadChains().then(draw);
+  });
+}
+
 /* ---------------- rendering pieces ---------------- */
 function ladderHTML(L, etf) {
   let h = L.entries.map(([k, v]) => `<tr class="en"><td>${k}</td><td>${fmt(v)}</td></tr>`).join("");
@@ -413,7 +465,7 @@ function stockBody(s, opts = {}) {
    <div class="cols"><div><h4>看好的理由</h4><ul>${why.map(t => `<li>${esc(t)}</li>`).join("")}</ul><h4 style="margin-top:10px">主要風險</h4><ul>${bear.map(t => `<li>${esc(t)}</li>`).join("")}</ul>${n.adjNote ? `<p class="hint">${esc(n.adjNote)}</p>` : ""}</div>
    <div><h4>${h === "short" ? "波段" : "長期"}進出場參考價（持有 ${daysText(days())}）</h4>${ladderHTML(L, s.etf)}</div></div>
    ${n.event ? `<div class="event">${esc(n.event)}</div>` : ""}
-   ${s.etf ? "" : `<div data-news="${s.code}"></div>`}
+   ${s.etf ? "" : `<div data-chain="${s.code}"></div><div data-news="${s.code}"></div>`}
    <div class="src">資料來源：證交所／櫃買中心 OpenAPI（${DB.date}）、${src.map(([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${esc(t)}</a>`).join("、")}</div>`;
 }
 function stockRow(s, rows) {
@@ -424,7 +476,7 @@ function stockRow(s, rows) {
   const dot = x ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${COLORS[ci % COLORS.length]};margin-right:6px"></span>` : "";
   const on = watch.has(s.code);
   d.innerHTML = `<summary><button type="button" class="star" data-star="${s.code}" aria-pressed="${on}" aria-label="${on ? "移出" : "加入"}自選股">${on ? "★" : "☆"}</button><span class="s-name">${dot}<code>${s.code}</code>${esc(s.name)}<small>${SIZENAME[s.size]}</small><span class="dots" aria-label="評分 ${sc} 分">${"●".repeat(sc)}${"○".repeat(5 - sc)}</span></span><span class="s-price">${fmt(s.price)}</span><span class="s-one">${esc(oneLine(s))}</span><span class="s-fit">${fitHTML}</span></summary><div class="body"></div>`;
-  d.addEventListener("toggle", () => { if (d.open) { const b = d.querySelector(".body"); b.innerHTML = stockBody(s, {row: x}); attachNews(b); } });
+  d.addEventListener("toggle", () => { if (d.open) { const b = d.querySelector(".body"); b.innerHTML = stockBody(s, {row: x}); attachChain(b); attachNews(b); } });
   return d;
 }
 
@@ -461,6 +513,9 @@ function render() {
   if (document.activeElement !== $("fQ")) $("fQ").value = state.q;
   document.querySelectorAll("#risk button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.v === state.r));
   document.querySelectorAll("#unit button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === state.unit));
+  document.querySelectorAll("#sizes button").forEach(b => b.setAttribute("aria-pressed", state.sizes.includes(b.dataset.v)));
+  const recBy = k => S.filter(s => isRec(s) && s.size === k).length;
+  $("sizeHint").textContent = (allSizes() ? "不限規模，" : `只從${state.sizes.map(k => SIZENAME[k]).join("、")}${state.sizes.length === 1 && state.sizes[0] === "E" ? "" : "股"}裡挑，`) + `目前推薦：大型 ${recBy("L")}、中型 ${recBy("M")}、小型 ${recBy("S")}、ETF ${recBy("E")} 檔。` + (state.sizes.includes("S") ? "小型股成交量較小，建議用限價單。" : "");
   $("unitHint").textContent = isLot() ? "只配置買得起一整張的股票，股數都是 1,000 股的倍數；單一股票最多占預算 60%。" : "可以買零股，小預算也能分散；但小型股的零股成交量小，建議改買整張。";
   $("riskHint").textContent = {1: "以 ETF、金融與中低風險股為主，不放高風險股。", 2: "高風險股單檔上限 15%。", 3: "可放題材股與小型股，高風險股單檔上限 30%。"}[state.r];
   const h = modeKey(), d = days();
@@ -473,7 +528,7 @@ function render() {
   $("legend").innerHTML = rows.map((x, i) => `<span style="--c:${COLORS[i % COLORS.length]}"><button type="button" data-open="a${x.s.code}">${esc(x.s.name)}</button> ${(x.cost / B * 100).toFixed(0)}%</span>`).join("") + `<span style="--c:var(--line)">現金 ${((B - used) / B * 100).toFixed(0)}%</span>`;
 
   const ac = $("allocCards"); ac.innerHTML = "";
-  if (!rows.length) ac.innerHTML = `<div class="empty">預算太低，連一股都買不到。試著把預算調到 1,000 元以上。</div>`;
+  if (!rows.length) ac.innerHTML = `<div class="empty">${allSizes() ? "預算太低，連一股都買不到。試著把預算調到 1,000 元以上。" : `在你選的規模（${state.sizes.map(k => SIZENAME[k]).join("、")}）裡，預算內挑不到符合條件的股票。試著多選幾種規模或提高預算。`}</div>`;
   else if (state.groups.length) {
     state.groups.forEach(g => { const got = rows.filter(x => x.g === g.k); if (!got.length) return;
       const sec = document.createElement("section"); sec.className = "ind"; const amt = got.reduce((a, x) => a + x.cost, 0);
@@ -481,7 +536,7 @@ function render() {
       got.forEach(x => { const r = stockRow(x.s, rows); r.id = "a" + x.s.code; sec.querySelector(".ind-list").appendChild(r); }); ac.appendChild(sec); });
   } else { const box = document.createElement("div"); box.className = "ind-list"; rows.forEach(x => { const r = stockRow(x.s, rows); r.id = "a" + x.s.code; box.appendChild(r); }); ac.appendChild(box); }
   renderGroupPick(rows);
-  $("condSummary").innerHTML = `目前條件<br>預算 <b>${money(B)}</b><br>持有 <b>${daysText(d)}</b>（${h === "short" ? "波段" : "長期"}）<br>風險 <b>${{1: "保守", 2: "穩健", 3: "積極"}[state.r]}</b> · ${isLot() ? "整張" : "可零股"} · 配置 <b>${rows.length}</b> 檔<br>${state.groups.length ? `類別 <b>${state.groups.map(g => esc(gLabel(g.k))).join("、")}</b><br>` : "類別 <b>系統全市場挑選</b><br>"}<a href="#alloc" data-view="alloc">修改條件</a>`;
+  $("condSummary").innerHTML = `目前條件<br>預算 <b>${money(B)}</b><br>持有 <b>${daysText(d)}</b>（${h === "short" ? "波段" : "長期"}）<br>風險 <b>${{1: "保守", 2: "穩健", 3: "積極"}[state.r]}</b> · ${isLot() ? "整張" : "可零股"}<br>規模 <b>${allSizes() ? "不限" : state.sizes.map(k => SIZENAME[k]).join("、")}</b> · 配置 <b>${rows.length}</b> 檔<br>${state.groups.length ? `類別 <b>${state.groups.map(g => esc(gLabel(g.k))).join("、")}</b><br>` : "類別 <b>系統全市場挑選</b><br>"}<a href="#alloc" data-view="alloc">修改條件</a>`;
 
   const all = filtered();
   const counts = {}; all.forEach(s => { const k = groupKey(s); if (k) counts[k] = (counts[k] || 0) + 1; });
@@ -544,7 +599,7 @@ function analyze(q, price) {
   const s = BY[q.toUpperCase()] || S.find(x => x.name === q) || S.find(x => x.name.includes(q));
   if (!q) { out.innerHTML = ""; lastAnalysis = null; return; }
   if (!s) { out.innerHTML = `<p class="status">找不到「${esc(q)}」。這裡只收上市櫃普通股與常見 ETF，興櫃、權證不在資料庫。</p>`; lastAnalysis = null; return; }
-  lastAnalysis = () => { out.innerHTML = `<div class="ind-h"><h3><code style="font:600 14px var(--f-data);color:var(--muted);margin-right:6px">${s.code}</code>${esc(s.name)}</h3><span class="s-price">${fmt(price || s.price)}</span></div>` + stockBody(s, {price: price || null, row: ROWS.find(r => r.s === s)}); attachNews(out); };
+  lastAnalysis = () => { out.innerHTML = `<div class="ind-h"><h3><code style="font:600 14px var(--f-data);color:var(--muted);margin-right:6px">${s.code}</code>${esc(s.name)}</h3><span class="s-price">${fmt(price || s.price)}</span></div>` + stockBody(s, {price: price || null, row: ROWS.find(r => r.s === s)}); attachChain(out); attachNews(out); };
   lastAnalysis();
 }
 
@@ -582,9 +637,10 @@ function saveUI() {
     saveUI.missing = saveUI.missing || new Set();
     if (!saveUI.missing.has("groups")) row.groups = state.groups;
     if (!saveUI.missing.has("unit")) row.unit = state.unit;
+    if (!saveUI.missing.has("sizes")) row.sizes = state.sizes;
     let {error} = await sb.from("user_settings").upsert(row);
-    for (let i = 0; i < 2 && error; i++) {   // 舊資料表還沒有新欄位時，拿掉該欄位再存
-      const col = ["groups", "unit"].find(c => (error.message || "").includes(c) && c in row);
+    for (let i = 0; i < 3 && error; i++) {   // 舊資料表還沒有新欄位時，拿掉該欄位再存
+      const col = ["groups", "unit", "sizes"].find(c => (error.message || "").includes(c) && c in row);
       if (!col) break; saveUI.missing.add(col); delete row[col]; ({error} = await sb.from("user_settings").upsert(row));
     }
     if (error) console.warn(error);
@@ -597,7 +653,7 @@ async function loadUserData() {
     sb.from("holdings").select("*").order("created_at"),
     sb.from("watchlist").select("code")
   ]);
-  if (st.data) { Object.assign(state, {budget: +st.data.budget, tNum: +st.data.t_num, tUnit: +st.data.t_unit, r: +st.data.risk, n: +st.data.n_pick}); if (Array.isArray(st.data.groups)) state.groups = st.data.groups; if (st.data.unit === "lot" || st.data.unit === "odd") state.unit = st.data.unit; }
+  if (st.data) { Object.assign(state, {budget: +st.data.budget, tNum: +st.data.t_num, tUnit: +st.data.t_unit, r: +st.data.risk, n: +st.data.n_pick}); if (Array.isArray(st.data.groups)) state.groups = st.data.groups; if (st.data.unit === "lot" || st.data.unit === "odd") state.unit = st.data.unit; if (Array.isArray(st.data.sizes) && st.data.sizes.length) state.sizes = st.data.sizes; }
   holdings = hd.data || []; watch = new Set((wl.data || []).map(x => x.code));
   // 第一次登入：把這台瀏覽器的訪客資料搬上去
   const gh = local.get("picker-holdings", []), gw = local.get("picker-watch", []);
@@ -645,7 +701,8 @@ function methodHTML() {
   <li><b>波段評分</b> ＝ 三大法人近 20 日與 5 日買賣超（權重最高）＋ 近 20 日走勢（上漲但不過熱加分，20 日漲超過 25% 或 60 日漲超過 50% 扣分）＋ 成長與估值。${DB.shortMode !== "full" ? "歷史資料累積到 20 個交易日前，波段評分只用基本面估算。" : ""}</li>
   <li><b>主要風險</b>依每檔的數據逐條產生：虧損或本業虧損、業外占比、毛利率偏低、本益比與同產業比、殖利率、營收年減或月減、單月與累計成長落差、法人賣超、短線漲幅、所屬題材或產業的特有風險、成交量與市值。</li>
   <li>評分 2 分以上、當日成交量至少 200 張的股票列入推薦清單。少數標的有人工研究筆記或調整，卡片上會寫明原因。</li>
-  <li><b>公司規模</b>：大型股市值 1,000 億以上、中型 200–1,000 億、小型 200 億以下。小型股流動性較差，掛單建議用限價。</li>
+  <li><b>公司規模</b>：大型股市值 1,000 億以上、中型 200–1,000 億、小型 200 億以下。小型股流動性較差，掛單建議用限價。在「配置建議」可以複選只要大型、中型、小型股或 ETF，配置與類別看好度都只用你選的規模計算。</li>
+  <li><b>上下游產業鏈</b>：取自證交所與櫃買中心合辦的「產業價值鏈資訊平台」，每週更新。卡片會列出這家公司所在的產業與環節、同環節的同業，以及上游、下游各環節的上市櫃公司（依推薦與評分排序，框線標示的是目前推薦清單裡的）。一家公司可能出現在好幾條產業鏈，可切換查看。</li>
   <li><b>配置類別與看好度</b>：每個題材（或官方產業）的看好度 0–100 ＝ 類別內前 3 檔平均評分（40%）＋ 推薦比例（20%）＋ 營收年增中位數（20%）＋ 法人買超比例（10%）＋ 近 20 日漲跌中位數（10%）。看好度 55 以上的前 4 名標「目前看好」。選了類別後，資金依你設的比例分給各類別，系統只在該類別裡挑評分高、預算買得起的股票；沒選就由系統在全市場挑。</li>
   <li><b>預期波動</b>：年化波動假設低 18%、中 32%、高 50%，乘上持有時間（年）的平方根，得到這段期間的正常波動幅度。</li>
   <li><b>波段模式（6 個月以內）</b>：資金分兩筆，現價下方 0.25 與 0.6 個波動幅度。停損在平均成本下方 1 個波動幅度（上限 15%），停利一、二是停損距離的 1.5 與 2.5 倍。持有天數到了還沒碰到停利一就出場。</li>
@@ -681,6 +738,9 @@ function wire() {
   $("timeChips").addEventListener("click", e => { const b = e.target.closest("button[data-n]"); if (b) { state.tNum = +b.dataset.n; state.tUnit = +b.dataset.u; reset(); } });
   $("risk").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) { state.r = +b.dataset.v; render(); } });
   $("unit").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) { state.unit = b.dataset.v; render(); } });
+  $("sizes").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return; const k = b.dataset.v, on = state.sizes.includes(k);
+    if (on && state.sizes.length === 1) { $("sizeHint").textContent = "至少要選一種規模。"; return; }
+    state.sizes = on ? state.sizes.filter(x => x !== k) : ["L", "M", "S", "E"].filter(x => x === k || state.sizes.includes(x)); render(); });
   $("nPick").addEventListener("change", e => { state.n = +e.target.value; render(); });
   [["fGroup", "group"], ["fMkt", "mkt"], ["fSize", "size"], ["fAfford", "afford"], ["fSort", "sort"]].forEach(([id, k]) => $(id).addEventListener("change", e => { state[k] = e.target.value; if (k === "group") state.chip = "all"; reset(); }));
   $("fPer").addEventListener("change", e => { state.per = +e.target.value; reset(); });
@@ -689,6 +749,7 @@ function wire() {
   ["pagerTop", "pagerBot"].forEach(id => $(id).addEventListener("click", e => { const b = e.target.closest("button[data-p]"); if (b && !b.disabled) { state.page = +b.dataset.p; render(); $("listTitle").scrollIntoView({behavior: "smooth", block: "start"}); } }));
   document.addEventListener("click", async e => {
     const op = e.target.closest("[data-open]"); if (op) { const el = $(op.dataset.open); if (el) { el.open = true; el.scrollIntoView({behavior: "smooth", block: "center"}); } return; }
+    const an = e.target.closest("[data-an]"); if (an) { e.preventDefault(); show("analyze"); $("aCode").value = an.dataset.an; $("aPrice").value = ""; analyze(an.dataset.an, 0); return; }
     const go = e.target.closest("[data-go]"); if (go) { e.preventDefault(); goTo(go.dataset.go); return; }
     const st = e.target.closest("[data-star]");
     if (st) { e.preventDefault(); e.stopPropagation(); try { await toggleWatch(st.dataset.star); render(); } catch (err) { alertMsg("自選股沒有存成功：" + err.message); } return; }
