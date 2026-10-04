@@ -24,7 +24,10 @@ HIGH_BETA_THEMES = {"memory", "cpo", "passive", "leo"}
 
 FIELDS = ["code", "name", "mkt", "ind", "themes", "price", "chg", "vol", "pe", "yld", "pb", "roe",
           "rev", "revCum", "revMonth", "cap", "size", "f5", "f20", "ch20", "ch60", "sL", "sS",
-          "risk", "volc", "liq"]
+          "risk", "volc", "liq",
+          "revCur", "revPrevM", "revLY", "revMoM", "revCumCur", "revCumLY",
+          "plYear", "plQ", "plRev", "plGP", "plOP", "plPretax", "plNI", "plEPS", "rh"]
+REV_DIR = DATA / "revenue"   # 每月營收快照，累積成近 12 個月走勢
 
 
 # ---------------------------------------------------------------- history
@@ -34,6 +37,21 @@ def save_history(date: str, quotes: dict, inst: dict) -> None:
     files = sorted(HISTORY.glob("*.json"))
     for old in files[:-KEEP_DAYS]:
         old.unlink()
+
+
+def save_revenue(revn: dict) -> None:
+    by_month: dict[str, dict] = {}
+    for c, r in revn.items():
+        if r.get("revMonth") and r.get("revCur") is not None:
+            by_month.setdefault(r["revMonth"], {})[c] = [r["revCur"], r.get("revLY")]
+    for m, d in by_month.items():
+        old = read_json(REV_DIR / f"{m}.json", {}) or {}
+        old.update(d)
+        write_json(REV_DIR / f"{m}.json", old)
+
+
+def load_revenue() -> list[tuple[str, dict]]:
+    return [(f.stem, read_json(f, {})) for f in sorted(REV_DIR.glob("*.json"))][-13:]
 
 
 def load_history() -> list[tuple[str, dict]]:
@@ -129,8 +147,12 @@ def build(raw: dict, write_hist: bool = True) -> dict:
             code_themes.setdefault(c, []).append(key)
     etf_list = set(themes_cfg.get("etf", {}).get("codes", []))
 
+    income = raw.get("income", {})
     if write_hist and quotes:
         save_history(date, quotes, inst)
+    if write_hist and revn:
+        save_revenue(revn)
+    revhist = load_revenue()
     hist = load_history()
     has_flow_hist = sum(1 for _, d in hist if any(v[1] is not None for v in list(d.values())[:50])) >= 5
     has_mom_hist = len(hist) >= 21
@@ -155,6 +177,12 @@ def build(raw: dict, write_hist: bool = True) -> dict:
         }
         s["roe"] = round(s["pb"] / s["pe"] * 100, 1) if s["pe"] and s["pe"] > 0 and s["pb"] else None
         s.update(series_stats(hist, code))
+        for k in ("revCur", "revPrevM", "revLY", "revCumCur", "revCumLY"):
+            s[k] = r.get(k)
+        s["revMoM"] = None if r.get("revMoM") is None else round(r["revMoM"], 1)
+        s.update({k: income.get(code, {}).get(k) for k in ("plYear", "plQ", "plRev", "plGP", "plOP", "plPretax", "plNI", "plEPS")})
+        rh = [[m, d[code][0], d[code][1]] for m, d in revhist if code in d]
+        s["rh"] = rh if len(rh) >= 2 else None
         s["liq"] = 1 if (q.get("vol") or 0) >= MIN_VOL_SHARES else 0
         rows.append(s)
 

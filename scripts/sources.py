@@ -109,7 +109,12 @@ def fetch_revenue(log: dict) -> dict[str, dict]:
             out[code] = {
                 "rev": num(pick(r, "營業收入-去年同月增減(%)", regex=r"(去年同月增減|YoY|YearOnYear)")),
                 "revCum": num(pick(r, "累計營業收入-前期比較增減(%)", regex=r"(累計.*增減|Cumulative.*%)")),
-                "revAmt": num(pick(r, "營業收入-當月營收", regex=r"(當月營收|MonthlyRevenue|Revenue$)")),
+                "revCur": num(pick(r, "營業收入-當月營收", regex=r"(當月營收$|MonthlyRevenue$)")),
+                "revPrevM": num(pick(r, "營業收入-上月營收", regex=r"(上月營收$|LastMonthRevenue)")),
+                "revLY": num(pick(r, "營業收入-去年當月營收", regex=r"(去年當月營收$|LastYearMonthRevenue)")),
+                "revMoM": num(pick(r, "營業收入-上月比較增減(%)", regex=r"(上月比較增減|MoM)")),
+                "revCumCur": num(pick(r, "累計營業收入-當月累計營收", regex=r"(當月累計營收$)")),
+                "revCumLY": num(pick(r, "累計營業收入-去年累計營收", regex=r"(去年累計營收$)")),
                 "revMonth": month,
                 "indName": (pick(r, "產業別", regex=r"(產業別|Industry)") or "").strip() or None,
             }
@@ -135,6 +140,35 @@ def fetch_profile(log: dict) -> dict[str, dict]:
                 "shares": num(pick(r, "已發行普通股數或TDR原股發行股數", "IssueShares",
                                    regex=r"(已發行普通股|IssueShares|IssuedShares)")),
             }
+    return out
+
+
+INCOME_KINDS = ("ci", "fh", "basi", "bd", "ins", "mim")
+
+
+def fetch_income(log: dict) -> dict[str, dict]:
+    """最新一季（年初累計）綜合損益表：營收、毛利、營業利益、稅前淨利、稅後淨利、EPS。單位千元。"""
+    out: dict[str, dict] = {}
+    for mkt, base, suffix in (("上市", f"{TWSE}/opendata/t187ap06_L_", ""), ("上櫃", f"{TPEX}/mopsfin_t187ap06_O_", "")):
+        for kind in INCOME_KINDS:
+            for r in _safe(f"income_{mkt}_{kind}", base + kind + suffix, log):
+                code = _code(r)
+                if not code:
+                    continue
+                y = num(pick(r, "年度", regex=r"(年度|Year)"))
+                q = num(pick(r, "季別", regex=r"(季別|Season|Quarter)"))
+                general = kind in ("ci", "mim")  # 金融業報表沒有可比的「營業收入／毛利」
+                rev = num(pick(r, "營業收入", regex=r"^營業收入$")) if general else None
+                out[code] = {
+                    "plYear": int(y) + 1911 if y and y < 1000 else (int(y) if y else None),
+                    "plQ": int(q) if q else None,
+                    "plRev": rev,
+                    "plGP": num(pick(r, "營業毛利（毛損）淨額", "營業毛利（毛損）", regex=r"^營業毛利")) if general else None,
+                    "plOP": num(pick(r, "營業利益（損失）", regex=r"^營業利益")),
+                    "plPretax": num(pick(r, "稅前淨利（淨損）", "繼續營業單位稅前損益", "繼續營業單位稅前淨利（淨損）", regex=r"稅前")),
+                    "plNI": num(pick(r, "淨利（淨損）歸屬於母公司業主", "本期淨利（淨損）", "本期稅後淨利（淨損）", regex=r"歸屬於母公司業主$")),
+                    "plEPS": num(pick(r, "基本每股盈餘（元）", regex=r"基本每股盈餘")),
+                }
     return out
 
 
@@ -216,4 +250,5 @@ def fetch_all(log: dict) -> dict[str, Any]:
         "revenue": fetch_revenue(log),
         "profile": fetch_profile(log),
         "inst": fetch_institutional(date, log),
+        "income": fetch_income(log),
     }

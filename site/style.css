@@ -170,3 +170,9 @@ details.stock[open]>summary{background:var(--accent-soft)}
 .empty{padding:20px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);text-align:center}
 .up{color:var(--up)} .down{color:var(--down)}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+.fins{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:4px 0 16px}
+@media (max-width:760px){.fins{grid-template-columns:minmax(0,1fr)}}
+.fins h4{font-size:12px;letter-spacing:.08em;color:var(--muted);margin:0 0 6px;font-weight:500}
+.fins .tbl-wrap{margin-top:0}
+table.tbl.fin{min-width:0;font-size:13px}
+table.tbl.fin td,table.tbl.fin th{padding:6px 8px;white-space:normal}

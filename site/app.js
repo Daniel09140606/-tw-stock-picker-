@@ -106,41 +106,138 @@ function plan() {
 
 /* ---------------- text from data ---------------- */
 function medPE(s) { return DB.indMedianPE[s.ind]; }
+const yi = v => v == null ? "—" : (Math.abs(v) >= 1e5 ? (v / 1e5).toLocaleString("zh-TW", {maximumFractionDigits: 2}) + " 億" : (v / 10).toLocaleString("zh-TW", {maximumFractionDigits: 0}) + " 萬");  // 千元 → 億／萬
+const monthLong = m => m ? `${m.slice(0, 4)} 年 ${+m.slice(5)} 月` : "最新月";
+const prevMonth = m => { if (!m) return null; let y = +m.slice(0, 4), mo = +m.slice(5) - 1; if (mo < 1) { mo = 12; y--; } return `${y}-${String(mo).padStart(2, "0")}`; };
+const lastYear = m => m ? `${+m.slice(0, 4) - 1}${m.slice(4)}` : null;
+const ratio = (a, b) => (a == null || !b) ? null : +((a / b - 1) * 100).toFixed(1);
+const plLabel = s => s.plYear ? `${s.plYear} 年${s.plQ === 4 ? "全年" : s.plQ === 1 ? "第一季" : `前 ${s.plQ} 季`}` : "最近一期";
+const margin = (a, b) => (a == null || !b) ? null : +(a / b * 100).toFixed(1);
+
+const THEME_RISK = {
+  etf: "ETF 成分股集中在電子權值股，大盤回檔時會一起跌",
+  semi: "半導體有資本支出與庫存循環，客戶調整庫存時訂單會下修",
+  icdesign: "IC 設計產品週期短、價格競爭激烈，新產品失利時營收掉得快",
+  ai_server: "AI 伺服器營收集中在少數雲端大廠，訂單時程延後就會反映在單月營收",
+  memory: "記憶體是報價循環產業，DRAM／NAND 合約價一旦轉跌，獲利會比營收掉得更快",
+  passive: "被動元件有明顯的庫存循環，2026 年 7 月族群曾在一個月內急跌近五成",
+  cooling: "散熱族群估值已反映液冷滲透率提升，出貨延遲時股價反應大",
+  pcb: "銅箔、玻纖布等原料漲價會壓縮毛利，高階材料認證時程也可能延後",
+  leo: "低軌衛星仍在建置期，題材熱度起伏大，部分公司相關營收占比不高",
+  cpo: "CPO 與矽光子的量產時程仍不確定，族群漲跌劇烈",
+  power: "電源產品有一部分是非 AI 應用，這部分成長慢、毛利較低",
+  fin: "金融股獲利受利率、匯率與股債市場波動影響，壽險尤其明顯"
+};
+const IND_RISK = {
+  "航運業": "運價波動大，獲利循環明顯，旺季過後容易轉弱",
+  "鋼鐵工業": "鋼價跟著國際原料與中國供需走，景氣循環明顯",
+  "建材營造": "營收集中在交屋時認列，受房市政策與信用管制影響大",
+  "生技醫療": "新藥與臨床結果不確定，部分公司長期虧損、靠增資支撐",
+  "觀光餐旅": "受景氣、旅遊需求與人力成本影響",
+  "塑膠工業": "石化報價偏弱，中國擴產帶來價格壓力",
+  "化學工業": "原料報價與中國產能擴張會壓縮利差",
+  "紡織纖維": "品牌客戶下單節奏與匯率影響大",
+  "汽車工業": "車市需求與關稅政策影響銷量",
+  "電子通路業": "毛利率低，營運資金需求大，匯率與庫存跌價影響獲利",
+  "光電業": "面板與光學元件報價有循環，產能過剩時跌價快",
+  "油電燃氣": "受油價與電價政策影響",
+  "食品工業": "原物料成本與消費景氣影響毛利",
+  "電機機械": "接單隨景氣循環，交期與匯率影響獲利",
+  "貿易百貨": "受消費景氣與電商競爭影響",
+  "通信網路業": "電信設備採購有週期，客戶集中度高",
+  "電腦及週邊設備業": "品牌與代工訂單集中，毛利率偏低",
+  "電子零組件業": "報價隨供需循環，客戶庫存調整時訂單下修",
+  "其他電子業": "產品組合分散，個別客戶訂單變動影響大"
+};
+
 function autoWhy(s) {
-  const a = [], med = medPE(s);
-  if (s.rev != null && s.rev >= 20) a.push(`${monthTxt(s.revMonth)}營收年增 ${s.rev}%${s.revCum != null ? `，今年累計年增 ${s.revCum}%` : ""}`);
+  const a = [], med = medPE(s), m = monthTxt(s.revMonth);
+  if (s.rev != null && s.rev >= 20) a.push(s.revCur != null && s.revLY != null ? `${m}營收 ${yi(s.revCur)}，比去年同月 ${yi(s.revLY)} 成長 ${s.rev}%${s.revCum != null ? `；今年累計年增 ${s.revCum}%` : ""}` : `${m}營收年增 ${s.rev}%${s.revCum != null ? `，今年累計年增 ${s.revCum}%` : ""}`);
+  if (s.revMoM != null && s.revMoM >= 10 && s.rev >= 0) a.push(`${m}營收比上個月再成長 ${s.revMoM}%，動能延續`);
+  const gm = margin(s.plGP, s.plRev), opm = margin(s.plOP, s.plRev);
+  if (gm != null && gm >= 40) a.push(`${plLabel(s)}毛利率 ${gm}%${opm != null ? `、營業利益率 ${opm}%` : ""}，獲利能力強`);
+  if (s.plEPS != null && s.plEPS > 0 && s.plNI != null) a.push(`${plLabel(s)}稅後淨利 ${yi(s.plNI)}，EPS ${s.plEPS} 元`);
   if (s.pe && med && s.pe <= med) a.push(`本益比 ${s.pe} 倍，低於${s.ind}中位數 ${med} 倍`);
   if (s.roe != null && s.roe >= 15) a.push(`推算 ROE 約 ${s.roe}%（股價淨值比 ÷ 本益比）`);
-  if (s.yld != null && s.yld >= 3.5) a.push(`殖利率 ${s.yld}%`);
+  if (s.yld != null && s.yld >= 3.5) a.push(`殖利率 ${s.yld}%，以現價買進每年約可領 ${fmt(+(s.price * s.yld / 100).toFixed(2))} 元股利`);
   if (s.f20 > 0 && s.f5 > 0) a.push(`三大法人近 20 日與近 5 日都買超（${lots(s.f20)} / ${lots(s.f5)}）`);
   else if (s.f5 > 0) a.push(`三大法人近 5 日買超 ${lots(s.f5)}`);
   if (s.ch20 != null && s.ch20 > 0 && s.ch20 <= 20) a.push(`近 20 日上漲 ${s.ch20}%，走勢向上但不過熱`);
   return a.length ? a : ["目前數據沒有明顯優勢"];
 }
+
 function autoBear(s) {
-  const a = [], med = medPE(s);
-  if (!s.pe && !s.etf) a.push("近四季虧損或無本益比資料");
-  if (s.pe && med && s.pe > med * 1.5) a.push(`本益比 ${s.pe} 倍，是${s.ind}中位數 ${med} 倍的 ${(s.pe / med).toFixed(1)} 倍`);
-  if (s.pe && s.pe > 80) a.push(`本益比超過 80 倍，市場已預期高成長`);
-  if (s.rev != null && s.rev < 0) a.push(`最新月營收年減 ${Math.abs(s.rev)}%`);
-  else if (s.rev != null && s.rev < 10) a.push(`營收成長只有 ${s.rev}%`);
-  if (s.f20 < 0 && s.f5 < 0) a.push(`三大法人近 20 日與近 5 日都賣超（${lots(s.f20)} / ${lots(s.f5)}）`);
-  if (s.ch60 != null && s.ch60 >= 40) a.push(`近 60 日已漲 ${s.ch60}%`);
-  if (s.ch20 != null && s.ch20 <= -10) a.push(`近 20 日跌 ${Math.abs(s.ch20)}%`);
+  const a = [], med = medPE(s), m = monthTxt(s.revMonth);
+  const gm = margin(s.plGP, s.plRev), opm = margin(s.plOP, s.plRev);
+  // 獲利
+  if (!s.etf && (s.plNI != null && s.plNI < 0)) a.push(`${plLabel(s)}虧損：稅後淨利 ${yi(s.plNI)}、EPS ${s.plEPS ?? "—"} 元，股價主要靠題材或資產價值支撐`);
+  else if (!s.pe && !s.etf) a.push("近四季虧損或沒有本益比資料，無法用獲利評價股價");
+  if (s.plOP != null && s.plOP < 0 && !(s.plNI < 0)) a.push(`${plLabel(s)}本業虧損（營業利益 ${yi(s.plOP)}），獲利主要來自業外`);
+  else if (s.plPretax > 0 && s.plOP != null && s.plOP > 0 && (s.plPretax - s.plOP) / s.plPretax > 0.4) a.push(`${plLabel(s)}稅前淨利有 ${Math.round((s.plPretax - s.plOP) / s.plPretax * 100)}% 來自業外收益，本業貢獻偏低，業外不一定每年都有`);
+  if (gm != null && gm < 10 && gm >= 0) a.push(`${plLabel(s)}毛利率只有 ${gm}%${opm != null ? `、營業利益率 ${opm}%` : ""}，原料或報價小幅變動就會吃掉獲利`);
+  // 估值
+  if (s.pe && med && s.pe > med * 1.5) a.push(`本益比 ${s.pe} 倍，是${s.ind}中位數 ${med} 倍的 ${(s.pe / med).toFixed(1)} 倍；成長一放緩，股價修正空間大`);
+  if (s.pe && s.pe > 80) a.push(`本益比超過 80 倍，等於用目前的獲利要 ${Math.round(s.pe)} 年才回本，市場已預期多年高成長`);
+  if (s.pb != null && s.pb >= 5 && s.roe != null && s.roe < 15) a.push(`股價淨值比 ${s.pb} 倍偏高，但推算 ROE 只有 ${s.roe}%，帳面價值撐不住現價`);
+  // 營收
+  if (s.rev != null && s.rev < 0) a.push(s.revCur != null && s.revLY != null ? `${m}營收 ${yi(s.revCur)}，比去年同月 ${yi(s.revLY)} 減少 ${Math.abs(s.rev)}%` : `${m}營收年減 ${Math.abs(s.rev)}%`);
+  else if (s.rev != null && s.rev < 10 && !s.etf) a.push(`${m}營收年增只有 ${s.rev}%，成長跟不上同業`);
+  if (s.revMoM != null && s.revMoM <= -15) a.push(`${m}營收比上個月少 ${Math.abs(s.revMoM)}%（${yi(s.revPrevM)} → ${yi(s.revCur)}），短期動能轉弱，留意下個月是否續降`);
+  if (s.rev != null && s.revCum != null && s.rev > 0 && s.rev - s.revCum > 30) a.push(`單月年增 ${s.rev}%，但今年累計只有 ${s.revCum}%，成長可能是單月出貨集中，不一定持續`);
+  if (s.revCum != null && s.revCum < 0 && s.rev > 0) a.push(`今年累計營收仍年減 ${Math.abs(s.revCum)}%，單月轉正還不代表全年回溫`);
   if (s.rev != null && s.rev > 300) a.push(`營收年增 ${s.rev}% 多半是去年基期太低，不代表能持續`);
-  if (s.price >= 1000) a.push(`一張要 ${fmt(Math.round(s.price / 10))} 萬，小預算只能買零股`);
-  if (s.size === "S") a.push("小型股成交量較小，掛單建議用限價");
+  // 籌碼與走勢
+  if (s.f20 < 0 && s.f5 < 0) a.push(`三大法人近 20 日與近 5 日都賣超（${lots(s.f20)} / ${lots(s.f5)}），短期賣壓還沒消化`);
+  else if (s.f20 > 0 && s.f5 < 0) a.push(`法人近 20 日買超，但近 5 日轉為賣超 ${lots(s.f5)}，留意是否開始調節`);
+  if (s.ch20 != null && s.ch20 >= 25) a.push(`近 20 日已漲 ${s.ch20}%，短線乖離大，追價容易買在高點`);
+  else if (s.ch60 != null && s.ch60 >= 40) a.push(`近 60 日已漲 ${s.ch60}%，漲幅已反映不少利多`);
+  if (s.ch20 != null && s.ch20 <= -10) a.push(`近 20 日跌 ${Math.abs(s.ch20)}%，趨勢偏弱，等止跌再分批比較安全`);
+  // 產業
+  const tr = s.themes.map(t => THEME_RISK[t]).find(Boolean) || IND_RISK[s.ind];
+  if (tr) a.push(tr);
+  // 交易面
+  if (s.price >= 1000) a.push(`一張要 ${fmt(Math.round(s.price / 10))} 萬元，小預算只能買零股，零股成交價可能比整股差`);
   if (!s.liq) a.push(`當日成交量只有 ${s.vol ?? 0} 張，流動性不足，不列入推薦`);
-  return a.length ? a : ["大盤估值偏高時，跟著回檔的風險"];
+  else if (s.vol != null && s.vol < 1000) a.push(`當日成交量約 ${fmt(s.vol)} 張，大筆買賣容易推動股價，建議限價分批`);
+  if (s.size === "S" && s.cap) a.push(`市值約 ${fmt(s.cap)} 億，屬小型股，單一消息對股價影響大`);
+  if (a.length < 3) a.push("大盤本益比在歷史高檔，整體回檔時這檔也可能跟著跌");
+  return a;
 }
+
+function finHTML(s) {
+  if (s.etf || (s.revCur == null && s.plNI == null)) return "";
+  const m = s.revMonth, rows = [];
+  if (s.revCur != null) {
+    rows.push([`${monthLong(m)}營收`, yi(s.revCur), lastYear(m) ? `${monthLong(lastYear(m))}：${yi(s.revLY)}` : "", pct(s.rev)]);
+    if (s.revPrevM != null) rows.push([`${monthLong(prevMonth(m))}營收（上月）`, yi(s.revPrevM), "", `${pct(s.revMoM)}（月增）`]);
+    if (s.revCumCur != null) rows.push([`${m ? m.slice(0, 4) : ""} 年 1–${m ? +m.slice(5) : ""} 月累計`, yi(s.revCumCur), `去年同期：${yi(s.revCumLY)}`, pct(s.revCum)]);
+  }
+  let rev = rows.length ? `<h4>月營收對比（單位：新台幣）</h4><div class="tbl-wrap"><table class="tbl fin"><thead><tr><th>期間</th><th>今年</th><th>去年同期</th><th>年增率</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td>${r[2]}</td><td class="num ${String(r[3]).startsWith("+") ? "up" : String(r[3]).startsWith("-") ? "down" : ""}">${r[3]}</td></tr>`).join("")}</tbody></table></div>` : "";
+  if (s.rh && s.rh.length >= 2) {
+    rev += `<p class="hint">近 ${s.rh.length} 個月：${s.rh.map(([mm, c, ly]) => `${+mm.slice(5)} 月 ${yi(c)}${ly ? `（${pct(ratio(c, ly))}）` : ""}`).join("、")}</p>`;
+  }
+  let pl = "";
+  if (s.plNI != null || s.plEPS != null) {
+    const gm = margin(s.plGP, s.plRev), opm = margin(s.plOP, s.plRev), npm = margin(s.plNI, s.plRev);
+    const r2 = [];
+    if (s.plRev != null) r2.push(["營業收入", yi(s.plRev), ""]);
+    if (s.plGP != null) r2.push(["營業毛利", yi(s.plGP), gm != null ? `毛利率 ${gm}%` : ""]);
+    if (s.plOP != null) r2.push(["營業利益", yi(s.plOP), opm != null ? `營益率 ${opm}%` : ""]);
+    if (s.plPretax != null) r2.push(["稅前淨利", yi(s.plPretax), s.plOP != null && s.plPretax ? `業外 ${yi(s.plPretax - s.plOP)}` : ""]);
+    if (s.plNI != null) r2.push(["稅後淨利（歸屬母公司）", yi(s.plNI), npm != null ? `淨利率 ${npm}%` : ""]);
+    if (s.plEPS != null) r2.push(["每股盈餘 EPS", s.plEPS + " 元", ""]);
+    pl = `<h4>${plLabel(s)}損益（累計）</h4><div class="tbl-wrap"><table class="tbl fin"><thead><tr><th>項目</th><th>金額</th><th>比率</th></tr></thead><tbody>${r2.map(r => `<tr><td>${r[0]}</td><td class="num ${String(r[1]).startsWith("-") ? "down" : ""}">${r[1]}</td><td>${r[2]}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  return `<div class="fins">${rev ? `<div>${rev}</div>` : ""}${pl ? `<div>${pl}</div>` : ""}</div>`;
+}
+
 function metricsOf(s) {
   const m = [], med = medPE(s);
   if (!s.etf) m.push(["本益比", s.pe ? `${s.pe}${med ? `（產業中位 ${med}）` : ""}` : "—"]);
   if (s.yld != null) m.push(["殖利率", s.yld + "%"]);
   if (s.pb != null) m.push(["股價淨值比", s.pb]);
   if (s.roe != null) m.push(["推算 ROE", s.roe + "%"]);
-  if (s.rev != null) m.push([`${monthTxt(s.revMonth)}營收年增`, pct(s.rev)]);
-  if (s.revCum != null) m.push(["今年累計年增", pct(s.revCum)]);
+  if (s.rev != null && s.revCur == null) m.push([`${monthTxt(s.revMonth)}營收年增`, pct(s.rev)]);
   if (s.cap != null) m.push(["市值", fmt(s.cap) + " 億"]);
   if (s.vol != null) m.push(["當日成交量", fmt(s.vol) + " 張"]);
   m.push(["法人 5 日", lots(s.f5)], ["法人 20 日", lots(s.f20)], ["20 日漲跌", pct(s.ch20)], ["60 日漲跌", pct(s.ch60)]);
@@ -168,11 +265,12 @@ function stockBody(s, opts = {}) {
   const fit = Math.floor(state.budget / (price * 1.001425));
   const buy = x ? `<div class="buy"><span>配置 <b>${Math.round(x.w * 100)}%</b></span><span>第一筆 <b>${sharesText(Math.max(1, Math.floor(x.shares / (h === "short" ? 2 : 3))))}</b></span><span>全部到位 <b>${sharesText(x.shares)}</b></span><span>預估投入 <b>${money(x.cost)}</b></span></div>`
     : fit >= 1 ? `<div class="buy"><span>用全部預算可買 <b>${sharesText(fit)}</b></span><span>一張 <b>${money(price * 1000 * 1.001425)}</b></span></div>` : `<div class="buy">預算不足一股（一股 ${money(price * 1.001425)}）。</div>`;
-  const n = s.note, why = [...(n.why || []), ...autoWhy(s).filter(t => !t.startsWith("目前數據"))].slice(0, 6), bear = [...(n.bear || []), ...autoBear(s)].slice(0, 6);
+  const n = s.note, why = [...(n.why || []), ...autoWhy(s).filter(t => !t.startsWith("目前數據"))].slice(0, 6), bear = [...(n.bear || []), ...autoBear(s)].slice(0, 8);
   const src = [[`FinLab ${s.code}`, FINLAB(s.code)], [`Goodinfo ${s.code}`, GOODINFO(s.code)], ...(n.src || [])];
   return `<div class="tags">${tags.join("")}</div>${buy}
    ${opts.price && opts.price !== s.price ? `<p class="hint">價位用你輸入的現價 ${fmt(opts.price)} 計算；其他數據是 ${DB.date} 的資料。</p>` : ""}
    <div class="metrics">${metricsOf(s).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
+   ${finHTML(s)}
    <div class="cols"><div><h4>看好的理由</h4><ul>${why.map(t => `<li>${esc(t)}</li>`).join("")}</ul><h4 style="margin-top:10px">主要風險</h4><ul>${bear.map(t => `<li>${esc(t)}</li>`).join("")}</ul>${n.adjNote ? `<p class="hint">${esc(n.adjNote)}</p>` : ""}</div>
    <div><h4>${h === "short" ? "波段" : "長期"}進出場參考價（持有 ${daysText(days())}）</h4>${ladderHTML(L, s.etf)}</div></div>
    ${n.event ? `<div class="event">${esc(n.event)}</div>` : ""}
