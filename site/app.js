@@ -19,8 +19,8 @@ const FINLAB = c => `https://finlab.finance/stocks/${c}`;
 const GOODINFO = c => `https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID=${c}`;
 
 let DB = null, S = [], BY = {};
-const PREF_KEYS = ["budget", "tNum", "tUnit", "r", "n"];
-let state = {budget: 100000, tNum: 1, tUnit: 365, r: 2, n: 0, group: "theme", mkt: "all", size: "all", afford: "all", sort: "score", per: 20, chip: "all", q: "", page: 1};
+const PREF_KEYS = ["budget", "tNum", "tUnit", "r", "n", "groups"];
+let state = {budget: 100000, tNum: 1, tUnit: 365, r: 2, n: 0, groups: [], group: "theme", mkt: "all", size: "all", afford: "all", sort: "score", per: 20, chip: "all", q: "", page: 1};
 try { const s = JSON.parse(localStorage.getItem("picker-ui")); if (s) Object.assign(state, s); } catch (e) {}
 let sb = null, user = null, holdings = [], watch = new Set();
 
@@ -71,6 +71,7 @@ async function loadData() {
 
 /* ---------------- allocation ---------------- */
 function plan() {
+  if (state.groups && state.groups.length) return planGroups();
   const B = state.budget, r = state.r;
   const pool = S.filter(s => isRec(s) && (r > 1 || s.risk <= 2));
   const adj = s => scoreOf(s) + (r === 1 && s.risk === 1 ? 1 : 0) + (r === 3 && s.risk === 3 ? 1 : 0) - (r === 2 && s.risk === 3 ? 1 : 0);
@@ -102,6 +103,88 @@ function plan() {
     zero.forEach(z => banned.add(z.s.code));
   }
   return [];
+}
+
+/* ---------------- 使用者選的配置類別 ---------------- */
+const gLabel = k => k.startsWith("t:") ? (DB.themes[k.slice(2)]?.n || k.slice(2)) : k.slice(2);
+const gMembers = k => k.startsWith("t:") ? S.filter(s => s.themes.includes(k.slice(2))) : S.filter(s => s.ind === k.slice(2) && !s.etf);
+const median = a => { const v = a.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); if (!v.length) return null; const m = Math.floor(v.length / 2); return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+let GSTAT = null;
+function groupStats(k) {
+  const key = modeKey() + "|" + k;
+  GSTAT = GSTAT || {}; if (GSTAT[key]) return GSTAT[key];
+  const mem = gMembers(k).filter(s => s.liq), recs = mem.filter(s => scoreOf(s) >= 2);
+  const top = recs.map(scoreOf).sort((a, b) => b - a).slice(0, 3);
+  const avgTop = top.length ? top.reduce((a, b) => a + b, 0) / top.length : 0;
+  const medRev = median(mem.map(s => s.rev > 300 ? null : s.rev));
+  const flowKnown = mem.filter(s => s.f20 != null || s.f5 != null);
+  const flowPos = flowKnown.length ? flowKnown.filter(s => (s.f20 ?? s.f5) > 0).length / flowKnown.length : null;
+  const mom = median(mem.map(s => s.ch20));
+  const cl = (x, a, b) => Math.max(0, Math.min(1, (x - a) / (b - a)));
+  const strength = mem.length ? Math.round(40 * avgTop / 5 + 20 * (recs.length / mem.length) + 20 * (medRev == null ? .5 : cl(medRev, -10, 50)) + 10 * (flowPos ?? .5) + 10 * (mom == null ? .5 : cl(mom, -5, 15))) : 0;
+  return GSTAT[key] = {k, n: mem.length, rec: recs.length, avgTop, medRev, flowPos, mom, strength};
+}
+function rankedThemes() { return Object.keys(DB.themes).map(t => groupStats("t:" + t)).filter(g => g.n).sort((a, b) => b.strength - a.strength); }
+function rankedInds() {
+  const inds = [...new Set(S.filter(s => !s.etf).map(s => s.ind))];
+  return inds.map(i => groupStats("i:" + i)).filter(g => g.rec >= 2).sort((a, b) => b.strength - a.strength);
+}
+function hotKeys() { return rankedThemes().filter(g => g.strength >= 55 && g.rec >= 2).slice(0, 4).map(g => g.k); }
+function gWhy(g) {
+  const p = [`推薦 ${g.rec}/${g.n} 檔`];
+  if (g.medRev != null) p.push(`營收年增中位數 ${pct(+g.medRev.toFixed(1))}`);
+  if (g.flowPos != null) p.push(`法人買超比例 ${Math.round(g.flowPos * 100)}%`);
+  if (g.mom != null) p.push(`近 20 日漲跌中位數 ${pct(+g.mom.toFixed(1))}`);
+  return p.join(" · ");
+}
+
+function planGroups() {
+  const B = state.budget, r = state.r, sel = state.groups.filter(g => +g.w > 0);
+  const totW = sel.reduce((a, g) => a + +g.w, 0) || 1;
+  const adj = s => scoreOf(s) + (r === 1 && s.risk === 1 ? 1 : 0) + (r === 3 && s.risk === 3 ? 1 : 0) - (r === 2 && s.risk === 3 ? 1 : 0);
+  const capOf = s => s.etf ? 1e12 : (s.cap || 0);
+  const autoN = B < 20000 ? 2 : B < 60000 ? 3 : B < 200000 ? 4 : B < 600000 ? 5 : 8;
+  const N = Math.max(state.n || autoN, sel.length), cap3 = {1: 0, 2: .15, 3: .30}[r];
+  const used = new Set(), out = [];
+  for (const g of sel) {
+    const wg = +g.w / totW, Bg = B * wg;
+    const pool = gMembers(g.k).filter(s => isRec(s) && (r > 1 || s.risk <= 2) && !used.has(s.code) && s.price * 1.001425 <= Bg)
+      .sort((a, b) => adj(b) - adj(a) || capOf(b) - capOf(a));
+    let want = Math.max(1, Math.round(N * wg)), idx = 0, picks = pool.slice(0, want); idx = picks.length;
+    for (let it = 0; it < 20 && picks.length; it++) {
+      const tot = picks.reduce((a, s) => a + adj(s), 0) || 1;
+      const ws = picks.map(s => ({s, w: wg * adj(s) / tot}));
+      let excess = 0; ws.forEach(x => { if (x.s.risk === 3 && x.w > cap3) { excess += x.w - cap3; x.w = cap3; } });
+      const safe = ws.filter(x => x.s.risk < 3); if (excess && safe.length) { const t = safe.reduce((a, x) => a + x.w, 0) || 1; safe.forEach(x => x.w += excess * x.w / t); }
+      const rows = ws.map(({s, w}) => { const L = levels(s.price, s.volc, s.etf); const sh = Math.floor(B * w / (L.entries[0][1] * 1.001425)); return {s, L, w, shares: sh, cost: Math.round(sh * L.entries[0][1] * 1.001425), g: g.k}; });
+      const zero = rows.filter(x => x.shares < 1);
+      if (!zero.length) { rows.forEach(x => { used.add(x.s.code); out.push(x); }); break; }
+      picks = picks.filter(s => !zero.some(z => z.s === s));
+      while (picks.length < want && idx < pool.length) picks.push(pool[idx++]);
+      if (!picks.length) break;
+    }
+  }
+  return out;
+}
+
+function renderGroupPick(rows) {
+  const box = $("groupPick"), sel = state.groups, selKeys = sel.map(g => g.k), hot = hotKeys(), B = state.budget;
+  const totW = sel.reduce((a, g) => a + (+g.w || 0), 0) || 1;
+  const card = g => { const on = selKeys.includes(g.k), isHot = hot.includes(g.k);
+    return `<button type="button" class="gcard" data-gk="${esc(g.k)}" aria-pressed="${on}"><span class="gc-top"><b>${esc(gLabel(g.k))}</b>${isHot ? `<span class="hot">目前看好</span>` : ""}<span class="gc-check">${on ? "已選" : "＋ 選擇"}</span></span><span class="gbar"><i style="width:${g.strength}%"></i></span><span class="gc-num">看好度 ${g.strength}</span><span class="gc-why">${esc(gWhy(g))}</span></button>`; };
+  const themes = rankedThemes(), inds = rankedInds().filter(g => !selKeys.includes(g.k));
+  const selHTML = sel.length ? `<div class="gsel">${sel.map(g => { const got = rows.filter(x => x.g === g.k), amt = got.reduce((a, x) => a + x.cost, 0);
+      return `<div class="gsel-row"><span class="gs-name">${esc(gLabel(g.k))}</span><label class="gs-w"><input type="number" min="0" max="100" step="5" value="${+g.w}" data-gw="${esc(g.k)}" aria-label="${esc(gLabel(g.k))} 資金比例">%</label><span class="gs-amt">${money(B * (+g.w || 0) / totW)}${got.length ? ` · ${got.length} 檔` : ` · <span class="warn-t">預算內挑不到符合條件的股票</span>`}</span><button type="button" class="linkbtn" data-gdel="${esc(g.k)}">移除</button></div>`; }).join("")}<p class="hint">比例會自動換算成總和 100%（目前合計 ${Math.round(totW)}%）。</p></div>` : `<p class="hint">還沒選類別，下方配置由系統在全市場挑選。</p>`;
+  box.innerHTML = `<div class="gp-head"><h3 class="minor">選擇想配置的類別</h3><div class="row"><button type="button" class="btn small" id="gRec">套用目前看好的類別</button><button type="button" class="btn ghost small" id="gEq" ${sel.length < 2 ? "disabled" : ""}>平均分配</button><button type="button" class="btn ghost small" id="gClear" ${sel.length ? "" : "disabled"}>清除，改由系統挑</button></div></div>
+    <p class="hint">看好度（0–100）依類別內個股的評分、推薦比例、營收成長、法人買超比例與近 20 日走勢計算；前幾名標「目前看好」。你可以自由勾選、混搭，再調整每一類的資金比例，系統只在你選的類別裡挑股票。</p>
+    ${selHTML}
+    <div class="gcards">${themes.map(card).join("")}</div>
+    <div class="gextra"><label class="lbl" for="gAdd">其他官方產業（依看好度排序）</label><div class="row"><select id="gAdd"><option value="">選擇產業…</option>${inds.map(g => `<option value="${esc(g.k)}">${esc(gLabel(g.k))}（看好度 ${g.strength}，推薦 ${g.rec} 檔）</option>`).join("")}</select><button type="button" class="btn ghost small" id="gAddBtn">加入</button></div></div>`;
+}
+function setGroups(keys) {
+  const prev = Object.fromEntries(state.groups.map(g => [g.k, g.w]));
+  const eq = keys.length ? Math.round(100 / keys.length) : 0;
+  state.groups = keys.map(k => ({k, w: keys.length === state.groups.length ? (prev[k] ?? eq) : eq}));
 }
 
 /* ---------------- text from data ---------------- */
@@ -331,6 +414,7 @@ function render() {
   const h = modeKey(), d = days();
   $("modeBox").innerHTML = `持有 <b>${daysText(d)}</b> → <b>${h === "short" ? "波段模式" : "長期模式"}</b>${d < 14 ? "<br>少於 2 週接近短打，這套規則參考性較低。" : ""}${h === "short" && DB.shortMode !== "full" ? "<br>歷史資料還在累積，波段評分暫時只用基本面估算。" : ""}`;
 
+  GSTAT = null;
   const rows = ROWS = plan(), B = state.budget, used = rows.reduce((a, x) => a + x.cost, 0);
   $("sum").innerHTML = `<div><small>預算</small><strong>${money(B)}</strong></div><div><small>全部到位投入</small><strong>${money(used)}</strong></div><div><small>保留現金</small><strong>${money(B - used)}</strong></div><div><small>配置標的</small><strong>${rows.length} 檔</strong></div>`;
   $("bar").innerHTML = rows.map((x, i) => `<i style="flex-basis:${(x.cost / B * 100).toFixed(1)}%;background:${COLORS[i % COLORS.length]}"></i>`).join("");
@@ -338,8 +422,14 @@ function render() {
 
   const ac = $("allocCards"); ac.innerHTML = "";
   if (!rows.length) ac.innerHTML = `<div class="empty">預算太低，連一股都買不到。試著把預算調到 1,000 元以上。</div>`;
-  else { const box = document.createElement("div"); box.className = "ind-list"; rows.forEach(x => { const r = stockRow(x.s, rows); r.id = "a" + x.s.code; box.appendChild(r); }); ac.appendChild(box); }
-  $("condSummary").innerHTML = `目前條件<br>預算 <b>${money(B)}</b><br>持有 <b>${daysText(d)}</b>（${h === "short" ? "波段" : "長期"}）<br>風險 <b>${{1: "保守", 2: "穩健", 3: "積極"}[state.r]}</b> · 配置 <b>${rows.length}</b> 檔<br><a href="#alloc" data-view="alloc">修改條件</a>`;
+  else if (state.groups.length) {
+    state.groups.forEach(g => { const got = rows.filter(x => x.g === g.k); if (!got.length) return;
+      const sec = document.createElement("section"); sec.className = "ind"; const amt = got.reduce((a, x) => a + x.cost, 0);
+      sec.innerHTML = `<div class="ind-h"><h3>${esc(gLabel(g.k))}</h3><span class="cnt">${got.length} 檔 · ${money(amt)}（${(amt / B * 100).toFixed(0)}%）</span></div><div class="ind-list"></div>`;
+      got.forEach(x => { const r = stockRow(x.s, rows); r.id = "a" + x.s.code; sec.querySelector(".ind-list").appendChild(r); }); ac.appendChild(sec); });
+  } else { const box = document.createElement("div"); box.className = "ind-list"; rows.forEach(x => { const r = stockRow(x.s, rows); r.id = "a" + x.s.code; box.appendChild(r); }); ac.appendChild(box); }
+  renderGroupPick(rows);
+  $("condSummary").innerHTML = `目前條件<br>預算 <b>${money(B)}</b><br>持有 <b>${daysText(d)}</b>（${h === "short" ? "波段" : "長期"}）<br>風險 <b>${{1: "保守", 2: "穩健", 3: "積極"}[state.r]}</b> · 配置 <b>${rows.length}</b> 檔<br>${state.groups.length ? `類別 <b>${state.groups.map(g => esc(gLabel(g.k))).join("、")}</b><br>` : "類別 <b>系統全市場挑選</b><br>"}<a href="#alloc" data-view="alloc">修改條件</a>`;
 
   const all = filtered();
   const counts = {}; all.forEach(s => { const k = groupKey(s); if (k) counts[k] = (counts[k] || 0) + 1; });
@@ -435,7 +525,13 @@ function show(v, scroll = true) {
 let prefTimer = null;
 function saveUI() {
   local.set("picker-ui", state);
-  if (user && sb) { clearTimeout(prefTimer); prefTimer = setTimeout(() => sb.from("user_settings").upsert({user_id: user.id, budget: state.budget, t_num: state.tNum, t_unit: state.tUnit, risk: state.r, n_pick: state.n, updated_at: new Date().toISOString()}).then(({error}) => { if (error) console.warn(error); }), 800); }
+  if (user && sb) { clearTimeout(prefTimer); prefTimer = setTimeout(async () => {
+    const row = {user_id: user.id, budget: state.budget, t_num: state.tNum, t_unit: state.tUnit, risk: state.r, n_pick: state.n, updated_at: new Date().toISOString()};
+    if (!saveUI.noGroupsCol) row.groups = state.groups;
+    let {error} = await sb.from("user_settings").upsert(row);
+    if (error && /groups/.test(error.message || "")) { saveUI.noGroupsCol = true; delete row.groups; ({error} = await sb.from("user_settings").upsert(row)); }
+    if (error) console.warn(error);
+  }, 800); }
 }
 async function loadUserData() {
   if (!user) { holdings = local.get("picker-holdings", []); watch = new Set(local.get("picker-watch", [])); return; }
@@ -444,7 +540,7 @@ async function loadUserData() {
     sb.from("holdings").select("*").order("created_at"),
     sb.from("watchlist").select("code")
   ]);
-  if (st.data) Object.assign(state, {budget: +st.data.budget, tNum: +st.data.t_num, tUnit: +st.data.t_unit, r: +st.data.risk, n: +st.data.n_pick});
+  if (st.data) { Object.assign(state, {budget: +st.data.budget, tNum: +st.data.t_num, tUnit: +st.data.t_unit, r: +st.data.risk, n: +st.data.n_pick}); if (Array.isArray(st.data.groups)) state.groups = st.data.groups; }
   holdings = hd.data || []; watch = new Set((wl.data || []).map(x => x.code));
   // 第一次登入：把這台瀏覽器的訪客資料搬上去
   const gh = local.get("picker-holdings", []), gw = local.get("picker-watch", []);
@@ -493,6 +589,7 @@ function methodHTML() {
   <li><b>主要風險</b>依每檔的數據逐條產生：虧損或本業虧損、業外占比、毛利率偏低、本益比與同產業比、殖利率、營收年減或月減、單月與累計成長落差、法人賣超、短線漲幅、所屬題材或產業的特有風險、成交量與市值。</li>
   <li>評分 2 分以上、當日成交量至少 200 張的股票列入推薦清單。少數標的有人工研究筆記或調整，卡片上會寫明原因。</li>
   <li><b>公司規模</b>：大型股市值 1,000 億以上、中型 200–1,000 億、小型 200 億以下。小型股流動性較差，掛單建議用限價。</li>
+  <li><b>配置類別與看好度</b>：每個題材（或官方產業）的看好度 0–100 ＝ 類別內前 3 檔平均評分（40%）＋ 推薦比例（20%）＋ 營收年增中位數（20%）＋ 法人買超比例（10%）＋ 近 20 日漲跌中位數（10%）。看好度 55 以上的前 4 名標「目前看好」。選了類別後，資金依你設的比例分給各類別，系統只在該類別裡挑評分高、預算買得起的股票；沒選就由系統在全市場挑。</li>
   <li><b>預期波動</b>：年化波動假設低 18%、中 32%、高 50%，乘上持有時間（年）的平方根，得到這段期間的正常波動幅度。</li>
   <li><b>波段模式（6 個月以內）</b>：資金分兩筆，現價下方 0.25 與 0.6 個波動幅度。停損在平均成本下方 1 個波動幅度（上限 15%），停利一、二是停損距離的 1.5 與 2.5 倍。持有天數到了還沒碰到停利一就出場。</li>
   <li><b>長期模式（超過 6 個月）</b>：資金分三筆，現價、回檔 0.5 與 0.9 個波動幅度各 1/3（上限 40%）。最大虧損線上限 35%。漲到重新評估價時考慮先賣 1/3；月營收年增率連兩個月轉負就減碼一半。</li>
@@ -500,13 +597,29 @@ function methodHTML() {
 }
 
 /* ---------------- events ---------------- */
+let laterT = null;
+const renderLater = () => { clearTimeout(laterT); laterT = setTimeout(render, 220); };  // 欄位失焦觸發的重繪延後，讓同一下點擊先完成
+function wireGroups() {
+  const box = $("groupPick");
+  box.addEventListener("click", e => {
+    const c = e.target.closest("[data-gk]");
+    if (c) { const k = c.dataset.gk, keys = state.groups.map(g => g.k); setGroups(keys.includes(k) ? keys.filter(x => x !== k) : [...keys, k]); render(); return; }
+    const d = e.target.closest("[data-gdel]"); if (d) { setGroups(state.groups.map(g => g.k).filter(x => x !== d.dataset.gdel)); render(); return; }
+    if (e.target.id === "gRec") { setGroups(hotKeys()); state.groups.forEach(g => g.w = Math.round(100 / state.groups.length)); render(); }
+    if (e.target.id === "gEq") { state.groups.forEach(g => g.w = Math.round(100 / state.groups.length)); render(); }
+    if (e.target.id === "gClear") { state.groups = []; render(); }
+    if (e.target.id === "gAddBtn") { const v = $("gAdd").value; if (v && !state.groups.some(g => g.k === v)) { setGroups([...state.groups.map(g => g.k), v]); render(); } }
+  });
+  box.addEventListener("change", e => { const w = e.target.closest("[data-gw]"); if (w) { const g = state.groups.find(x => x.k === w.dataset.gw); if (g) { g.w = Math.max(0, Math.min(100, +w.value || 0)); renderLater(); } } });
+}
 function wire() {
+  wireGroups();
   document.addEventListener("click", e => { const a = e.target.closest("a[data-view]"); if (a) { e.preventDefault(); show(a.dataset.view); } });
   window.addEventListener("hashchange", () => show(location.hash.slice(1)));
   const reset = () => { state.page = 1; render(); };
-  $("budget").addEventListener("change", e => { const v = +e.target.value; if (v > 0) { state.budget = v; reset(); } });
+  $("budget").addEventListener("change", e => { const v = +e.target.value; if (v > 0) { state.budget = v; state.page = 1; renderLater(); } });
   $("budgetChips").addEventListener("click", e => { const b = e.target.closest("button[data-b]"); if (b) { state.budget = +b.dataset.b; reset(); } });
-  $("tNum").addEventListener("change", e => { const v = +e.target.value; if (v > 0) { state.tNum = v; reset(); } });
+  $("tNum").addEventListener("change", e => { const v = +e.target.value; if (v > 0) { state.tNum = v; state.page = 1; renderLater(); } });
   $("tUnit").addEventListener("change", e => { state.tUnit = +e.target.value; reset(); });
   $("timeChips").addEventListener("click", e => { const b = e.target.closest("button[data-n]"); if (b) { state.tNum = +b.dataset.n; state.tUnit = +b.dataset.u; reset(); } });
   $("risk").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (b) { state.r = +b.dataset.v; render(); } });

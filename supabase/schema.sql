@@ -44,3 +44,6 @@ create policy "own holdings" on public.holdings
 drop policy if exists "own watchlist" on public.watchlist;
 create policy "own watchlist" on public.watchlist
   for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- 2026/10/4 新增：使用者選的配置類別與比例（例：[{"k":"t:ai_server","w":40}]）
+alter table public.user_settings add column if not exists groups jsonb not null default '[]'::jsonb;

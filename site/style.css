@@ -177,3 +177,31 @@ details.stock[open]>summary{background:var(--accent-soft)}
 table.tbl.fin{min-width:0;font-size:13px}
 table.tbl.fin td,table.tbl.fin th{padding:6px 8px;white-space:normal}
 table.tbl.fin td.num,table.tbl.fin th.num{white-space:nowrap;text-align:right}
+/* group picker */
+.group-pick{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:12px}
+.gp-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.gp-head h3{margin:0}
+.gp-head .row{display:flex;flex-wrap:wrap;gap:6px}
+.gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:12px}
+.gcard{display:flex;flex-direction:column;gap:6px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);cursor:pointer;font:inherit;min-width:0}
+.gcard:hover{border-color:var(--accent)}
+.gcard[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.gc-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.gc-top b{font-size:14.5px}
+.hot{font-size:11.5px;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--up-soft);color:var(--up)}
+.gc-check{margin-left:auto;font-size:12px;color:var(--accent);font-weight:600}
+.gbar{display:block;height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.gbar i{display:block;height:100%;background:var(--accent)}
+.gc-num{font:600 12px var(--f-data);color:var(--ink)}
+.gc-why{font-size:12px;color:var(--muted);line-height:1.5}
+.gsel{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--bg)}
+.gsel-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:6px 0;border-bottom:1px dotted var(--line)}
+.gsel-row:last-of-type{border-bottom:0}
+.gs-name{font-weight:700;min-width:110px}
+.gs-w{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--muted)}
+.gs-w input{width:72px;font-size:14px;padding:5px 6px}
+.gs-amt{font:500 13px var(--f-data);color:var(--muted);flex:1;min-width:0}
+.warn-t{color:var(--warn);font-family:var(--f-body)}
+.gextra{margin-top:12px}
+.gextra .row{display:flex;gap:6px}
+.gextra select{max-width:420px}
