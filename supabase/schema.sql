@@ -47,3 +47,6 @@ create policy "own watchlist" on public.watchlist
 
 -- 2026/10/4 新增：使用者選的配置類別與比例（例：[{"k":"t:ai_server","w":40}]）
 alter table public.user_settings add column if not exists groups jsonb not null default '[]'::jsonb;
+
+-- 2026/10/5 新增：購買單位（odd＝可買零股，lot＝只買整張）
+alter table public.user_settings add column if not exists unit text not null default 'odd' check (unit in ('odd', 'lot'));

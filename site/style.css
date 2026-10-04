@@ -205,3 +205,19 @@ table.tbl.fin td.num,table.tbl.fin th.num{white-space:nowrap;text-align:right}
 .gextra{margin-top:12px}
 .gextra .row{display:flex;gap:6px}
 .gextra select{max-width:420px}
+.seg.seg2{grid-template-columns:1fr 1fr}
+/* news */
+.newsbox{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.news-h{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px}
+.newsbox h4{font-size:12px;letter-spacing:.08em;color:var(--muted);margin:10px 0 6px;font-weight:500}
+.news-h h4{margin:0}
+.news-sum{font-size:14px;margin:6px 0 4px}
+.newslist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.newslist li{font-size:13.5px;line-height:1.5;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.newslist a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.newslist a:hover{text-decoration-color:var(--accent)}
+.nd{font:500 12px var(--f-data);color:var(--muted)}
+.ns{font-size:12px;color:var(--muted)}
+.tone{font-size:11.5px;font-weight:600;padding:0 6px;border-radius:99px}
+.tone.pos{background:var(--up-soft);color:var(--up)}
+.tone.neg{background:var(--down-soft);color:var(--down)}

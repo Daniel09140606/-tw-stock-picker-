@@ -16,7 +16,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +25,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 抓資料並計算評分
         run: python scripts/build.py
+      - name: 抓新聞與重大訊息（失敗不影響其他資料）
+        run: python scripts/news.py || echo "新聞抓取失敗，沿用舊資料"
       - name: 顯示各資料來源狀態
         if: always()
         run: cat data/fetch_log.json || true

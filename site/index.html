@@ -59,6 +59,14 @@
           <p class="hint" id="riskHint"></p>
         </div>
         <div>
+          <span class="lbl">購買單位</span>
+          <div class="seg seg2" id="unit">
+            <button type="button" data-v="odd" aria-pressed="true">可以買零股</button>
+            <button type="button" data-v="lot" aria-pressed="false">只買整張</button>
+          </div>
+          <p class="hint" id="unitHint"></p>
+        </div>
+        <div>
           <label class="lbl" for="nPick">配置幾檔</label>
           <select id="nPick"><option value="0">依預算自動</option><option value="3">3 檔</option><option value="5">5 檔</option><option value="8">8 檔</option><option value="10">10 檔</option><option value="15">15 檔</option></select>
           <p class="hint">5 檔以下每個族群最多 1 檔，超過 5 檔每個族群最多 2 檔。</p>
