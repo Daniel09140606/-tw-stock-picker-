@@ -1,0 +1,197 @@
+{
+  "at": "2026-10-04T22:19+08:00",
+  "date": "2026-10-02",
+  "sources": {
+    "quotes_上市": {
+      "ok": true,
+      "rows": 1380,
+      "keys": [
+        "Date",
+        "Code",
+        "Name",
+        "TradeVolume",
+        "TradeValue",
+        "OpeningPrice",
+        "HighestPrice",
+        "LowestPrice",
+        "ClosingPrice",
+        "Change",
+        "Transaction"
+      ]
+    },
+    "quotes_上櫃": {
+      "ok": true,
+      "rows": 11928,
+      "keys": [
+        "Date",
+        "SecuritiesCompanyCode",
+        "CompanyName",
+        "Close",
+        "Change",
+        "Open",
+        "High",
+        "Low",
+        "Average",
+        "TradingShares",
+        "TransactionAmount",
+        "TransactionNumber",
+        "LatestBidPrice",
+        "LatesAskPrice",
+        "Capitals",
+        "NextReferencePrice",
+        "NextLimitUp",
+        "NextLimitDown"
+      ]
+    },
+    "valuation_上市": {
+      "ok": true,
+      "rows": 1082,
+      "keys": [
+        "Date",
+        "Code",
+        "Name",
+        "PEratio",
+        "DividendYield",
+        "PBratio"
+      ]
+    },
+    "valuation_上櫃": {
+      "ok": true,
+      "rows": 887,
+      "keys": [
+        "Date",
+        "SecuritiesCompanyCode",
+        "CompanyName",
+        "PriceEarningRatio",
+        "DividendPerShare",
+        "YieldRatio",
+        "PriceBookRatio"
+      ]
+    },
+    "revenue_上市": {
+      "ok": true,
+      "rows": 1086,
+      "keys": [
+        "出表日期",
+        "資料年月",
+        "公司代號",
+        "公司名稱",
+        "產業別",
+        "營業收入-當月營收",
+        "營業收入-上月營收",
+        "營業收入-去年當月營收",
+        "營業收入-上月比較增減(%)",
+        "營業收入-去年同月增減(%)",
+        "累計營業收入-當月累計營收",
+        "累計營業收入-去年累計營收",
+        "累計營業收入-前期比較增減(%)",
+        "備註"
+      ]
+    },
+    "revenue_上櫃": {
+      "ok": true,
+      "rows": 892,
+      "keys": [
+        "出表日期",
+        "資料年月",
+        "公司代號",
+        "公司名稱",
+        "產業別",
+        "營業收入-當月營收",
+        "營業收入-上月營收",
+        "營業收入-去年當月營收",
+        "營業收入-上月比較增減(%)",
+        "營業收入-去年同月增減(%)",
+        "累計營業收入-當月累計營收",
+        "累計營業收入-去年累計營收",
+        "累計營業收入-前期比較增減(%)",
+        "備註"
+      ]
+    },
+    "profile_上市": {
+      "ok": true,
+      "rows": 1095,
+      "keys": [
+        "出表日期",
+        "公司代號",
+        "公司名稱",
+        "公司簡稱",
+        "外國企業註冊地國",
+        "產業別",
+        "住址",
+        "營利事業統一編號",
+        "董事長",
+        "總經理",
+        "發言人",
+        "發言人職稱",
+        "代理發言人",
+        "總機電話",
+        "成立日期",
+        "上市日期",
+        "普通股每股面額",
+        "實收資本額",
+        "私募股數",
+        "特別股",
+        "編制財務報表類型",
+        "股票過戶機構",
+        "過戶電話",
+        "過戶地址",
+        "簽證會計師事務所",
+        "簽證會計師1",
+        "簽證會計師2",
+        "英文簡稱",
+        "英文通訊地址",
+        "傳真機號碼",
+        "電子郵件信箱",
+        "網址",
+        "已發行普通股數或TDR原股發行股數"
+      ]
+    },
+    "profile_上櫃": {
+      "ok": true,
+      "rows": 892,
+      "keys": [
+        "Date",
+        "SecuritiesCompanyCode",
+        "CompanyName",
+        "CompanyAbbreviation",
+        "Registration",
+        "SecuritiesIndustryCode",
+        "Address",
+        "UnifiedBusinessNo.",
+        "Chairman",
+        "GeneralManager",
+        "Spokesman",
+        "TitleOfSpokesman",
+        "DeputySpokesperson",
+        "Telephone",
+        "DateOfIncorporation",
+        "DateOfListing",
+        "ParValueOfCommonStock",
+        "Paidin.Capital.NTDollars",
+        "PrivateStock.shares",
+        "PreferredStock.shares",
+        "PreparationOfFinancialReportType",
+        "StockTransferAgent",
+        "StockTransferAgentTelephone",
+        "StockTransferAgentAddress",
+        "AccountingFirm",
+        "CPA.CharteredPublicAccountant.First",
+        "CPA.CharteredPublicAccountant.Second",
+        "Symbol",
+        "Fax",
+        "EmailAddress",
+        "WebAddress",
+        "IssueShares"
+      ]
+    },
+    "inst_上市": {
+      "ok": true,
+      "rows": 1338
+    },
+    "inst_上櫃": {
+      "ok": true,
+      "rows": 910
+    }
+  }
+}
