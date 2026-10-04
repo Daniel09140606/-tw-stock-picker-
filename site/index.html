@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>預算選股台</title>
+<meta name="description" content="輸入預算與持有時間，從台股上市櫃全市場依規則評分，列出推薦標的與進出場參考價。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>預算選股台</h1>
+    <div class="stamp" id="stamp">載入資料中…</div>
+  </header>
+  <div class="market" id="market"></div>
+
+  <div class="grid">
+    <aside class="panel" aria-label="條件設定">
+      <section class="account" id="account"></section>
+      <div>
+        <label class="lbl" for="budget">預算（新台幣）</label>
+        <input id="budget" type="number" min="1000" step="1000" value="100000" inputmode="numeric">
+        <div class="chips" id="budgetChips">
+          <button type="button" data-b="20000">2 萬</button><button type="button" data-b="50000">5 萬</button><button type="button" data-b="100000">10 萬</button><button type="button" data-b="300000">30 萬</button><button type="button" data-b="1000000">100 萬</button>
+        </div>
+      </div>
+      <div>
+        <span class="lbl">預計持有多久</span>
+        <div class="row2">
+          <input id="tNum" type="number" min="1" step="1" value="1" aria-label="持有時間數字">
+          <select id="tUnit" aria-label="持有時間單位"><option value="1">天</option><option value="7">週</option><option value="30">個月</option><option value="365" selected>年</option></select>
+        </div>
+        <div class="chips" id="timeChips">
+          <button type="button" data-n="2" data-u="7">2 週</button><button type="button" data-n="1" data-u="30">1 個月</button><button type="button" data-n="3" data-u="30">3 個月</button><button type="button" data-n="6" data-u="30">6 個月</button><button type="button" data-n="1" data-u="365">1 年</button><button type="button" data-n="3" data-u="365">3 年</button>
+        </div>
+        <div class="mode" id="modeBox"></div>
+      </div>
+      <div>
+        <span class="lbl">風險偏好</span>
+        <div class="seg" id="risk">
+          <button type="button" data-v="1" aria-pressed="false">保守</button>
+          <button type="button" data-v="2" aria-pressed="true">穩健</button>
+          <button type="button" data-v="3" aria-pressed="false">積極</button>
+        </div>
+        <p class="hint" id="riskHint"></p>
+      </div>
+      <div>
+        <label class="lbl" for="nPick">配置幾檔</label>
+        <select id="nPick"><option value="0">依預算自動</option><option value="3">3 檔</option><option value="5">5 檔</option><option value="8">8 檔</option><option value="10">10 檔</option><option value="15">15 檔</option></select>
+        <p class="hint">5 檔以下每個族群最多 1 檔，超過 5 檔每個族群最多 2 檔。</p>
+      </div>
+      <p class="hint">手續費以 0.1425% 計（券商折扣另計），賣出另有證交稅：股票 0.3%、ETF 0.1%。不到一張的部分以零股計算。</p>
+    </aside>
+
+    <main style="min-width:0">
+      <div class="summary" id="sum"></div>
+      <div class="alloc" id="bar" aria-hidden="true"></div>
+      <div class="legend" id="legend"></div>
+
+      <section id="mine" hidden>
+        <h2>我的持股與自選股</h2>
+        <p class="sub">每筆持股依你的成本與持有時間計算停損與停利，看是否已經碰到出場條件。</p>
+        <form class="hold-form" id="holdForm">
+          <div><label class="lbl" for="hCode">代號</label><input id="hCode" type="text" placeholder="2330" autocomplete="off"></div>
+          <div><label class="lbl" for="hCost">成本/股</label><input id="hCost" type="number" step="0.01"></div>
+          <div><label class="lbl" for="hQty">股數</label><input id="hQty" type="number" step="1"></div>
+          <button class="btn" type="submit">加入持股</button>
+        </form>
+        <div id="holdList"></div>
+        <h3 class="minor">自選股</h3>
+        <div id="watchMine"></div>
+      </section>
+
+      <h2>個股分析</h2>
+      <p class="sub">輸入任何上市櫃代號或名稱，用最新收盤資料分析，並依你的持有時間算進出場價。</p>
+      <section class="analyzer">
+        <form class="an-form" id="anForm">
+          <div class="grow"><label class="lbl" for="aCode">代號或名稱</label><input id="aCode" type="text" placeholder="例 2330 或 台積電" autocomplete="off" list="codeList"></div>
+          <div><label class="lbl" for="aPrice">現價（選填）</label><input id="aPrice" type="number" step="0.01" placeholder="用收盤價"></div>
+          <button class="btn" type="submit">分析</button>
+        </form>
+        <datalist id="codeList"></datalist>
+        <div id="anOut"></div>
+      </section>
+
+      <h2 id="listTitle">推薦清單</h2>
+      <p class="sub" id="listSub"></p>
+      <div class="toolbar">
+        <div><label class="lbl" for="fGroup">分組方式</label><select id="fGroup"><option value="theme">依題材</option><option value="ind">依官方產業（全市場）</option></select></div>
+        <div><label class="lbl" for="fMkt">市場</label><select id="fMkt"><option value="all">上市＋上櫃</option><option value="上市">上市</option><option value="上櫃">上櫃</option></select></div>
+        <div><label class="lbl" for="fSize">公司規模</label><select id="fSize"><option value="all">全部</option><option value="L">大型（市值千億以上）</option><option value="M">中型（200–1000 億）</option><option value="S">小型（200 億以下）</option><option value="E">ETF</option></select></div>
+        <div><label class="lbl" for="fAfford">價位</label><select id="fAfford"><option value="all">全部</option><option value="lot">預算買得起一張</option><option value="share">預算至少買得起一股</option></select></div>
+        <div><label class="lbl" for="fSort">組內排序</label><select id="fSort"><option value="score">評分高到低</option><option value="price">股價低到高</option><option value="pe">本益比低到高</option><option value="rev">營收成長高到低</option><option value="yld">殖利率高到低</option></select></div>
+        <div><label class="lbl" for="fPer">每頁</label><select id="fPer"><option value="10">10 檔</option><option value="20" selected>20 檔</option><option value="50">50 檔</option></select></div>
+        <div class="span2"><label class="lbl" for="fQ">搜尋</label><input id="fQ" type="text" placeholder="代號、名稱或產業" autocomplete="off"></div>
+      </div>
+      <div class="chips indchips" id="indChips" role="group" aria-label="族群篩選"></div>
+      <div class="pager" id="pagerTop"></div>
+      <div id="groups"></div>
+      <div class="pager" id="pagerBot"></div>
+
+      <details class="method">
+        <summary>評分與進出場價位怎麼算</summary>
+        <div id="methodBody"></div>
+      </details>
+      <p class="note">這是用公開資料整理的研究工具，不是投資建議，作者也不是持牌投資顧問。資料每個交易日收盤後更新一次，不是即時報價；下單前請到券商 App 確認價格，並自行判斷。</p>
+    </main>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

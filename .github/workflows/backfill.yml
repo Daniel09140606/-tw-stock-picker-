@@ -1,0 +1,31 @@
+name: 補歷史收盤價（只需執行一次）
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "要補幾個交易日"
+        default: "65"
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python scripts/backfill.py --days "${{ github.event.inputs.days }}"
+      - name: 重新計算評分（不重複寫入今日歷史）
+        run: python scripts/build.py
+      - name: 提交
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data site/data
+          git diff --cached --quiet || (git commit -m "補歷史收盤價" && git push)
