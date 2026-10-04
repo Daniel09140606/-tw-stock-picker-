@@ -74,6 +74,8 @@ def size_of(cap_yi: float | None) -> str:
 def score(s: dict, ind_med_pe: float | None, has_flow: bool, has_mom: bool) -> tuple[int, int]:
     rev, pe, pb = s.get("rev"), s.get("pe"), s.get("pb")
     g = 0.5 if rev is None else 2 if rev >= 100 else 1.5 if rev >= 40 else 1 if rev >= 20 else 0.5 if rev >= 0 else 0
+    if rev is not None and rev > 300:  # 年增超過 300% 多半是去年基期太低，不當成真實成長
+        g = 1
     if rev is not None and rev > 0 and s.get("revCum") is not None and s["revCum"] < 0:
         g -= 0.25
     if not pe or pe <= 0:

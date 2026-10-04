@@ -74,7 +74,8 @@ function plan() {
   const B = state.budget, r = state.r;
   const pool = S.filter(s => isRec(s) && (r > 1 || s.risk <= 2));
   const adj = s => scoreOf(s) + (r === 1 && s.risk === 1 ? 1 : 0) + (r === 3 && s.risk === 3 ? 1 : 0) - (r === 2 && s.risk === 3 ? 1 : 0);
-  pool.sort((a, b) => adj(b) - adj(a) || (b.cap || 0) - (a.cap || 0));
+  const capOf = s => s.etf ? 1e12 : (s.cap || 0);   // 同分時 ETF 優先，其次市值大的
+  pool.sort((a, b) => adj(b) - adj(a) || capOf(b) - capOf(a));
   const N = state.n || (B < 20000 ? 2 : B < 60000 ? 3 : B < 200000 ? 4 : B < 600000 ? 5 : 8);
   const perGroup = N <= 5 ? 1 : 2, cap3 = {1: 0, 2: .15, 3: .30}[r];
   const banned = new Set();
@@ -126,6 +127,7 @@ function autoBear(s) {
   if (s.f20 < 0 && s.f5 < 0) a.push(`三大法人近 20 日與近 5 日都賣超（${lots(s.f20)} / ${lots(s.f5)}）`);
   if (s.ch60 != null && s.ch60 >= 40) a.push(`近 60 日已漲 ${s.ch60}%`);
   if (s.ch20 != null && s.ch20 <= -10) a.push(`近 20 日跌 ${Math.abs(s.ch20)}%`);
+  if (s.rev != null && s.rev > 300) a.push(`營收年增 ${s.rev}% 多半是去年基期太低，不代表能持續`);
   if (s.price >= 1000) a.push(`一張要 ${fmt(Math.round(s.price / 10))} 萬，小預算只能買零股`);
   if (s.size === "S") a.push("小型股成交量較小，掛單建議用限價");
   if (!s.liq) a.push(`當日成交量只有 ${s.vol ?? 0} 張，流動性不足，不列入推薦`);
@@ -227,7 +229,12 @@ function render() {
   const rows = ROWS = plan(), B = state.budget, used = rows.reduce((a, x) => a + x.cost, 0);
   $("sum").innerHTML = `<div><small>預算</small><strong>${money(B)}</strong></div><div><small>全部到位投入</small><strong>${money(used)}</strong></div><div><small>保留現金</small><strong>${money(B - used)}</strong></div><div><small>配置標的</small><strong>${rows.length} 檔</strong></div>`;
   $("bar").innerHTML = rows.map((x, i) => `<i style="flex-basis:${(x.cost / B * 100).toFixed(1)}%;background:${COLORS[i % COLORS.length]}"></i>`).join("");
-  $("legend").innerHTML = rows.map((x, i) => `<span style="--c:${COLORS[i % COLORS.length]}"><button type="button" data-go="${x.s.code}">${esc(x.s.name)}</button> ${(x.cost / B * 100).toFixed(0)}%</span>`).join("") + `<span style="--c:var(--line)">現金 ${((B - used) / B * 100).toFixed(0)}%</span>`;
+  $("legend").innerHTML = rows.map((x, i) => `<span style="--c:${COLORS[i % COLORS.length]}"><button type="button" data-open="a${x.s.code}">${esc(x.s.name)}</button> ${(x.cost / B * 100).toFixed(0)}%</span>`).join("") + `<span style="--c:var(--line)">現金 ${((B - used) / B * 100).toFixed(0)}%</span>`;
+
+  const ac = $("allocCards"); ac.innerHTML = "";
+  if (!rows.length) ac.innerHTML = `<div class="empty">預算太低，連一股都買不到。試著把預算調到 1,000 元以上。</div>`;
+  else { const box = document.createElement("div"); box.className = "ind-list"; rows.forEach(x => { const r = stockRow(x.s, rows); r.id = "a" + x.s.code; box.appendChild(r); }); ac.appendChild(box); }
+  $("condSummary").innerHTML = `目前條件<br>預算 <b>${money(B)}</b><br>持有 <b>${daysText(d)}</b>（${h === "short" ? "波段" : "長期"}）<br>風險 <b>${{1: "保守", 2: "穩健", 3: "積極"}[state.r]}</b> · 配置 <b>${rows.length}</b> 檔<br><a href="#alloc" data-view="alloc">修改條件</a>`;
 
   const all = filtered();
   const counts = {}; all.forEach(s => { const k = groupKey(s); if (k) counts[k] = (counts[k] || 0) + 1; });
@@ -263,7 +270,6 @@ function render() {
 
 /* ---------------- my holdings & watchlist ---------------- */
 function renderMine() {
-  $("mine").hidden = false;
   const hl = $("holdList");
   if (!holdings.length) hl.innerHTML = `<p class="status">還沒有持股。輸入代號、成本和股數加入後，這裡會依你的持有時間顯示停損與停利。${user ? "" : "未登入時只存在這台瀏覽器。"}</p>`;
   else {
@@ -297,14 +303,27 @@ function analyze(q, price) {
 
 function goTo(code) {
   const s = BY[code]; if (!s) return;
-  if (!isRec(s)) { $("aCode").value = code; analyze(code, 0); $("anOut").scrollIntoView({behavior: "smooth", block: "start"}); return; }
+  if (!isRec(s)) { show("analyze"); $("aCode").value = code; analyze(code, 0); return; }
   state.q = ""; state.mkt = "all"; state.size = "all"; state.afford = "all";
   if (state.group === "theme" && !s.themes.length) state.group = "ind";
   state.chip = groupKey(s);
   const list = filtered().filter(x => groupKey(x) === state.chip).sort(sorters[state.sort]);
   state.page = Math.floor(Math.max(0, list.indexOf(s)) / state.per) + 1;
-  render();
+  show("list", false); render();
   const el = $("s" + code); if (el) { el.open = true; el.scrollIntoView({behavior: "smooth", block: "center"}); }
+}
+
+/* ---------------- views ---------------- */
+const VIEWS = ["alloc", "list", "analyze", "mine", "account", "help"];
+let view = "alloc";
+function show(v, scroll = true) {
+  if (!VIEWS.includes(v)) v = "alloc";
+  view = v;
+  VIEWS.forEach(k => { $("view-" + k).hidden = k !== v; });
+  document.querySelectorAll("#menu a").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
+  document.title = $("view-" + v).dataset.title + "｜預算選股台";
+  if (scroll) window.scrollTo({top: 0});
 }
 
 /* ---------------- persistence ---------------- */
@@ -345,6 +364,8 @@ async function toggleWatch(code) {
 /* ---------------- account UI ---------------- */
 function accountUI(msg = "", err = false) {
   const el = $("account");
+  $("navUser").textContent = user ? "已登入 " + user.email : (sb ? "未登入，資料存在這台瀏覽器" : "未設定");
+  $("mineSub").textContent = "每筆持股依你的成本與持有時間計算停損與停利，看是否已經碰到出場條件。" + (user ? "資料已同步到你的帳號。" : "目前未登入，資料只存在這台瀏覽器；到「帳號」登入就能跨裝置同步。");
   if (!sb) { el.innerHTML = `<span class="lbl">帳號</span><p class="msg">帳號功能尚未設定（config.js 缺少 Supabase 設定）。資料先存在這台瀏覽器。</p>`; return; }
   if (user) { el.innerHTML = `<span class="lbl">帳號</span><div class="who">已登入：<b>${esc(user.email)}</b></div><p class="msg">設定、持股、自選股會同步到你的帳號，其他人看不到。</p><div class="row"><button type="button" class="btn ghost small" id="signOut">登出</button></div>`; return; }
   el.innerHTML = `<span class="lbl">帳號</span>
@@ -360,9 +381,9 @@ const AUTH_ERR = {"Invalid login credentials": "Email 或密碼不對。", "User
 
 /* ---------------- method text ---------------- */
 function methodHTML() {
-  return `<p>評分和價位都是依公開規則算出來的參考值，不是預測。</p><ul>
+  return `<ul>
   <li><b>資料</b>：證交所與櫃買中心官方 OpenAPI 的收盤價、本益比、殖利率、股價淨值比、月營收、公司基本資料，以及三大法人買賣超。每個交易日收盤後由 GitHub Actions 自動更新。目前資料日期 ${DB.date}，已累積 ${DB.historyDays} 天歷史。</li>
-  <li><b>長期評分</b>（1–5 分）＝ 成長（月營收年增率，最高 2 分）＋ 估值（本益比和同產業中位數比，越低越高分；超過 80 倍扣分；虧損直接扣分）＋ 獲利品質（推算 ROE＝股價淨值比÷本益比）＋ 法人動向（最多 0.5 分）。記憶體是景氣循環股，估值分數最多 0.5 分。</li>
+  <li><b>長期評分</b>（1–5 分）＝ 成長（月營收年增率，最高 2 分）＋ 估值（本益比和同產業中位數比，越低越高分；超過 80 倍扣分；虧損直接扣分）＋ 獲利品質（推算 ROE＝股價淨值比÷本益比）＋ 法人動向（最多 0.5 分）。記憶體是景氣循環股，估值分數最多 0.5 分；營收年增超過 300% 多半是基期太低，成長分數只給 1 分。</li>
   <li><b>波段評分</b> ＝ 三大法人近 20 日與 5 日買賣超（權重最高）＋ 近 20 日走勢（上漲但不過熱加分，20 日漲超過 25% 或 60 日漲超過 50% 扣分）＋ 成長與估值。${DB.shortMode !== "full" ? "歷史資料累積到 20 個交易日前，波段評分只用基本面估算。" : ""}</li>
   <li>評分 2 分以上、當日成交量至少 200 張的股票列入推薦清單。少數標的有人工研究筆記或調整，卡片上會寫明原因。</li>
   <li><b>公司規模</b>：大型股市值 1,000 億以上、中型 200–1,000 億、小型 200 億以下。小型股流動性較差，掛單建議用限價。</li>
@@ -374,6 +395,8 @@ function methodHTML() {
 
 /* ---------------- events ---------------- */
 function wire() {
+  document.addEventListener("click", e => { const a = e.target.closest("a[data-view]"); if (a) { e.preventDefault(); show(a.dataset.view); } });
+  window.addEventListener("hashchange", () => show(location.hash.slice(1)));
   const reset = () => { state.page = 1; render(); };
   $("budget").addEventListener("change", e => { const v = +e.target.value; if (v > 0) { state.budget = v; reset(); } });
   $("budgetChips").addEventListener("click", e => { const b = e.target.closest("button[data-b]"); if (b) { state.budget = +b.dataset.b; reset(); } });
@@ -388,6 +411,7 @@ function wire() {
   $("indChips").addEventListener("click", e => { const b = e.target.closest("button[data-chip]"); if (b) { state.chip = b.dataset.chip; reset(); } });
   ["pagerTop", "pagerBot"].forEach(id => $(id).addEventListener("click", e => { const b = e.target.closest("button[data-p]"); if (b && !b.disabled) { state.page = +b.dataset.p; render(); $("listTitle").scrollIntoView({behavior: "smooth", block: "start"}); } }));
   document.addEventListener("click", async e => {
+    const op = e.target.closest("[data-open]"); if (op) { const el = $(op.dataset.open); if (el) { el.open = true; el.scrollIntoView({behavior: "smooth", block: "center"}); } return; }
     const go = e.target.closest("[data-go]"); if (go) { e.preventDefault(); goTo(go.dataset.go); return; }
     const st = e.target.closest("[data-star]");
     if (st) { e.preventDefault(); e.stopPropagation(); try { await toggleWatch(st.dataset.star); render(); } catch (err) { alertMsg("自選股沒有存成功：" + err.message); } return; }
@@ -419,7 +443,7 @@ function wire() {
     }
   });
 }
-function alertMsg(t) { const m = $("authMsg") || $("anOut"); m.textContent = t; m.classList?.add("err"); }
+function alertMsg(t) { const m = $("mineMsg"); m.textContent = t; m.classList.add("err"); clearTimeout(alertMsg.t); alertMsg.t = setTimeout(() => { m.textContent = ""; }, 6000); }
 
 /* ---------------- boot ---------------- */
 async function boot() {
@@ -439,7 +463,7 @@ async function boot() {
     });
   }
   await loadUserData().catch(e => console.warn(e));
-  accountUI(); render();
+  accountUI(); render(); show(location.hash.slice(1) || "alloc", false);
 }
 boot();
 })();
