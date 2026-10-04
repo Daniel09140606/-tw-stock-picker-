@@ -51,7 +51,7 @@ def parse(html: str) -> list:
             if links:
                 for ln in links:
                     sub = ln["id"].replace("sc_link_", "")
-                    label = re.sub(r"\(\d+家\)", "", ln.get_text().replace("►", "").replace("\xa0", " ")).strip()
+                    label = re.sub(r"\s+", " ", re.sub(r"\(\d+家\)", "", ln.get_text().replace("►", "").replace("\xa0", " "))).strip()
                     t = soup.find(id="sc_company_" + sub)
                     subs.append([label, codes_in(t) if t else []])
             else:
@@ -60,10 +60,16 @@ def parse(html: str) -> list:
     return segs
 
 
-def main() -> int:
-    r = SESSION.get(BASE + "introduce.php?ic=D000", timeout=30)
+def fetch(path: str) -> str:
+    r = SESSION.get(BASE + path, timeout=30)
     r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
+    r.encoding = "utf-8"   # 網站沒宣告編碼，不指定會被當成 latin-1 變亂碼
+    return r.text
+
+
+def main() -> int:
+    first = fetch("introduce.php?ic=D000")
+    soup = BeautifulSoup(first, "html.parser")
     opts = [(o.get("value"), o.get_text(strip=True)) for o in soup.select("#ic_option option") if o.get("value")]
     if not opts:
         print("找不到產業清單，網站結構可能改了")
@@ -71,7 +77,7 @@ def main() -> int:
     out = {}
     for ic, name in opts:
         try:
-            html = r.text if ic == "D000" else SESSION.get(BASE + f"introduce.php?ic={ic}", timeout=30).text
+            html = first if ic == "D000" else fetch(f"introduce.php?ic={ic}")
             segs = parse(html)
             if segs:
                 out[ic] = [name, segs]
