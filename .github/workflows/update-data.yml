@@ -36,3 +36,11 @@ jobs:
           if git diff --cached --quiet; then echo "沒有新資料"; exit 0; fi
           git commit -m "資料更新 $(date -u -d '+8 hours' +%F)"
           git push
+
+  deploy:
+    needs: update
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

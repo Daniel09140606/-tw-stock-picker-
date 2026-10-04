@@ -9,7 +9,7 @@
 | 部分 | 做什麼 | 在哪裡 |
 |---|---|---|
 | 資料 | 抓證交所、櫃買中心官方 OpenAPI，計算評分，輸出 `site/data/stocks.json` | `scripts/`，由 GitHub Actions 每天 17:40 執行 |
-| 網站 | 靜態網頁，讀 `stocks.json`，在瀏覽器端做配置、篩選、分頁、進出場價 | `site/`，部署在 Netlify |
+| 網站 | 靜態網頁，讀 `stocks.json`，在瀏覽器端做配置、篩選、分頁、進出場價 | `site/`，由 GitHub Actions 部署到 GitHub Pages |
 | 帳號 | 登入、每人的設定／持股／自選股，靠 RLS 只能讀寫自己的資料 | Supabase，資料表定義在 `supabase/schema.sql` |
 
 ## 第一次設定
@@ -17,12 +17,12 @@
 1. **Supabase**
    - 建一個新專案。
    - 到 SQL Editor 貼上 `supabase/schema.sql` 全文執行。
-   - 到 Authentication → URL Configuration，把 Site URL 設成 Netlify 網址。
+   - 到 Authentication → URL Configuration，把 Site URL 設成 GitHub Pages 網址。
    - 把 Project URL 和 anon public key 填進 `site/config.js`。
    - **service_role key 不要放進 repo。**
-2. **Netlify**
-   - Add new site → Import from GitHub → 選這個 repo。
-   - 建置設定會自動讀 `netlify.toml`（發布資料夾 `site`），不用另外填。
+2. **GitHub Pages**
+   - repo 的 Settings → Pages → Build and deployment → Source 選 **GitHub Actions**。
+   - 之後每次資料更新或 `site/` 有改動，都會自動部署。
 3. **GitHub Actions**
    - 到 Actions 分頁，手動執行「每日更新股票資料」一次，確認抓得到資料。
    - 再執行一次「補歷史收盤價」，讓近 20 / 60 日漲跌一開始就有數字。
