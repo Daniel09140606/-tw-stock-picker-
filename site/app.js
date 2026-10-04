@@ -106,12 +106,12 @@ function plan() {
 
 /* ---------------- text from data ---------------- */
 function medPE(s) { return DB.indMedianPE[s.ind]; }
-const yi = v => v == null ? "—" : (Math.abs(v) >= 1e5 ? (v / 1e5).toLocaleString("zh-TW", {maximumFractionDigits: 2}) + " 億" : (v / 10).toLocaleString("zh-TW", {maximumFractionDigits: 0}) + " 萬");  // 千元 → 億／萬
+const yi = v => v == null ? "—" : (Math.abs(v) >= 1e5 ? (v / 1e5).toLocaleString("zh-TW", {maximumFractionDigits: Math.abs(v) >= 1e7 ? 0 : 1}) + " 億" : (v / 10).toLocaleString("zh-TW", {maximumFractionDigits: 0}) + " 萬");  // 千元 → 億／萬
 const monthLong = m => m ? `${m.slice(0, 4)} 年 ${+m.slice(5)} 月` : "最新月";
 const prevMonth = m => { if (!m) return null; let y = +m.slice(0, 4), mo = +m.slice(5) - 1; if (mo < 1) { mo = 12; y--; } return `${y}-${String(mo).padStart(2, "0")}`; };
 const lastYear = m => m ? `${+m.slice(0, 4) - 1}${m.slice(4)}` : null;
 const ratio = (a, b) => (a == null || !b) ? null : +((a / b - 1) * 100).toFixed(1);
-const plLabel = s => s.plYear ? `${s.plYear} 年${s.plQ === 4 ? "全年" : s.plQ === 1 ? "第一季" : `前 ${s.plQ} 季`}` : "最近一期";
+const plLabel = s => s.plYear ? `${s.plYear} 年${{1: "第一季", 2: "上半年", 3: "前三季", 4: "全年"}[s.plQ] || ""}` : "最近一期";
 const margin = (a, b) => (a == null || !b) ? null : +(a / b * 100).toFixed(1);
 
 const THEME_RISK = {
@@ -129,6 +129,7 @@ const THEME_RISK = {
   fin: "金融股獲利受利率、匯率與股債市場波動影響，壽險尤其明顯"
 };
 const IND_RISK = {
+  "水泥工業": "中國水泥產能過剩、碳費與能源轉型投資，讓獲利波動變大",
   "航運業": "運價波動大，獲利循環明顯，旺季過後容易轉弱",
   "鋼鐵工業": "鋼價跟著國際原料與中國供需走，景氣循環明顯",
   "建材營造": "營收集中在交屋時認列，受房市政策與信用管制影響大",
@@ -152,7 +153,7 @@ const IND_RISK = {
 
 function autoWhy(s) {
   const a = [], med = medPE(s), m = monthTxt(s.revMonth);
-  if (s.rev != null && s.rev >= 20) a.push(s.revCur != null && s.revLY != null ? `${m}營收 ${yi(s.revCur)}，比去年同月 ${yi(s.revLY)} 成長 ${s.rev}%${s.revCum != null ? `；今年累計年增 ${s.revCum}%` : ""}` : `${m}營收年增 ${s.rev}%${s.revCum != null ? `，今年累計年增 ${s.revCum}%` : ""}`);
+  if (s.rev != null && s.rev >= 20) a.push(s.revCur != null && s.revLY != null ? `${m}營收 ${yi(s.revCur)}，比去年同月的 ${yi(s.revLY)}成長 ${s.rev}%${s.revCum != null ? `；今年累計年增 ${s.revCum}%` : ""}` : `${m}營收年增 ${s.rev}%${s.revCum != null ? `，今年累計年增 ${s.revCum}%` : ""}`);
   if (s.revMoM != null && s.revMoM >= 10 && s.rev >= 0) a.push(`${m}營收比上個月再成長 ${s.revMoM}%，動能延續`);
   const gm = margin(s.plGP, s.plRev), opm = margin(s.plOP, s.plRev);
   if (gm != null && gm >= 40) a.push(`${plLabel(s)}毛利率 ${gm}%${opm != null ? `、營業利益率 ${opm}%` : ""}，獲利能力強`);
@@ -171,17 +172,21 @@ function autoBear(s) {
   const gm = margin(s.plGP, s.plRev), opm = margin(s.plOP, s.plRev);
   // 獲利
   if (!s.etf && (s.plNI != null && s.plNI < 0)) a.push(`${plLabel(s)}虧損：稅後淨利 ${yi(s.plNI)}、EPS ${s.plEPS ?? "—"} 元，股價主要靠題材或資產價值支撐`);
-  else if (!s.pe && !s.etf) a.push("近四季虧損或沒有本益比資料，無法用獲利評價股價");
+  else if (!s.pe && !s.etf) a.push(s.plEPS > 0 ? `沒有本益比（近四季 EPS 合計為負），${plLabel(s)}雖已轉盈、EPS ${s.plEPS} 元，獲利是否穩定還要觀察` : "近四季虧損或沒有本益比資料，無法用獲利評價股價");
   if (s.plOP != null && s.plOP < 0 && !(s.plNI < 0)) a.push(`${plLabel(s)}本業虧損（營業利益 ${yi(s.plOP)}），獲利主要來自業外`);
   else if (s.plPretax > 0 && s.plOP != null && s.plOP > 0 && (s.plPretax - s.plOP) / s.plPretax > 0.4) a.push(`${plLabel(s)}稅前淨利有 ${Math.round((s.plPretax - s.plOP) / s.plPretax * 100)}% 來自業外收益，本業貢獻偏低，業外不一定每年都有`);
   if (gm != null && gm < 10 && gm >= 0) a.push(`${plLabel(s)}毛利率只有 ${gm}%${opm != null ? `、營業利益率 ${opm}%` : ""}，原料或報價小幅變動就會吃掉獲利`);
   // 估值
   if (s.pe && med && s.pe > med * 1.5) a.push(`本益比 ${s.pe} 倍，是${s.ind}中位數 ${med} 倍的 ${(s.pe / med).toFixed(1)} 倍；成長一放緩，股價修正空間大`);
+  else if (s.pe && med && s.pe > med * 1.1) a.push(`本益比 ${s.pe} 倍，比${s.ind}中位數 ${med} 倍高 ${Math.round((s.pe / med - 1) * 100)}%，已有一定的成長溢價`);
   if (s.pe && s.pe > 80) a.push(`本益比超過 80 倍，等於用目前的獲利要 ${Math.round(s.pe)} 年才回本，市場已預期多年高成長`);
   if (s.pb != null && s.pb >= 5 && s.roe != null && s.roe < 15) a.push(`股價淨值比 ${s.pb} 倍偏高，但推算 ROE 只有 ${s.roe}%，帳面價值撐不住現價`);
+  else if (s.pb != null && s.pb >= 5) a.push(`股價淨值比 ${s.pb} 倍，已反映高 ROE；獲利率一下滑，估值會跟著修正`);
+  if (!s.etf && s.yld != null && s.yld < 1.5) a.push(`殖利率只有 ${s.yld}%，報酬幾乎全靠股價上漲，股價不漲時沒有股利緩衝`);
   // 營收
-  if (s.rev != null && s.rev < 0) a.push(s.revCur != null && s.revLY != null ? `${m}營收 ${yi(s.revCur)}，比去年同月 ${yi(s.revLY)} 減少 ${Math.abs(s.rev)}%` : `${m}營收年減 ${Math.abs(s.rev)}%`);
+  if (s.rev != null && s.rev < 0) a.push(s.revCur != null && s.revLY != null ? `${m}營收 ${yi(s.revCur)}，比去年同月的 ${yi(s.revLY)}減少 ${Math.abs(s.rev)}%` : `${m}營收年減 ${Math.abs(s.rev)}%`);
   else if (s.rev != null && s.rev < 10 && !s.etf) a.push(`${m}營收年增只有 ${s.rev}%，成長跟不上同業`);
+  if (s.revMoM != null && s.revMoM > -15 && s.revMoM <= -5) a.push(`${m}營收比上個月少 ${Math.abs(s.revMoM)}%，留意是否連續下滑`);
   if (s.revMoM != null && s.revMoM <= -15) a.push(`${m}營收比上個月少 ${Math.abs(s.revMoM)}%（${yi(s.revPrevM)} → ${yi(s.revCur)}），短期動能轉弱，留意下個月是否續降`);
   if (s.rev != null && s.revCum != null && s.rev > 0 && s.rev - s.revCum > 30) a.push(`單月年增 ${s.rev}%，但今年累計只有 ${s.revCum}%，成長可能是單月出貨集中，不一定持續`);
   if (s.revCum != null && s.revCum < 0 && s.rev > 0) a.push(`今年累計營收仍年減 ${Math.abs(s.revCum)}%，單月轉正還不代表全年回溫`);
@@ -199,6 +204,7 @@ function autoBear(s) {
   if (s.price >= 1000) a.push(`一張要 ${fmt(Math.round(s.price / 10))} 萬元，小預算只能買零股，零股成交價可能比整股差`);
   if (!s.liq) a.push(`當日成交量只有 ${s.vol ?? 0} 張，流動性不足，不列入推薦`);
   else if (s.vol != null && s.vol < 1000) a.push(`當日成交量約 ${fmt(s.vol)} 張，大筆買賣容易推動股價，建議限價分批`);
+  if (s.cap != null && s.cap >= 10000) a.push(`市值約 ${(s.cap / 10000).toFixed(1)} 兆元，是大盤權值股，外資資金進出時波動會放大`);
   if (s.size === "S" && s.cap) a.push(`市值約 ${fmt(s.cap)} 億，屬小型股，單一消息對股價影響大`);
   if (a.length < 3) a.push("大盤本益比在歷史高檔，整體回檔時這檔也可能跟著跌");
   return a;
@@ -208,11 +214,12 @@ function finHTML(s) {
   if (s.etf || (s.revCur == null && s.plNI == null)) return "";
   const m = s.revMonth, rows = [];
   if (s.revCur != null) {
-    rows.push([`${monthLong(m)}營收`, yi(s.revCur), lastYear(m) ? `${monthLong(lastYear(m))}：${yi(s.revLY)}` : "", pct(s.rev)]);
-    if (s.revPrevM != null) rows.push([`${monthLong(prevMonth(m))}營收（上月）`, yi(s.revPrevM), "", `${pct(s.revMoM)}（月增）`]);
-    if (s.revCumCur != null) rows.push([`${m ? m.slice(0, 4) : ""} 年 1–${m ? +m.slice(5) : ""} 月累計`, yi(s.revCumCur), `去年同期：${yi(s.revCumLY)}`, pct(s.revCum)]);
+    const mo = m ? +m.slice(5) : "", pm = prevMonth(m);
+    rows.push([`${mo} 月`, yi(s.revCur), yi(s.revLY), pct(s.rev)]);
+    if (s.revCumCur != null) rows.push([`1–${mo} 月累計`, yi(s.revCumCur), yi(s.revCumLY), pct(s.revCum)]);
+    if (s.revPrevM != null) rows.push([`上月（${pm ? +pm.slice(5) : ""} 月）`, yi(s.revPrevM), "", s.revMoM != null ? `本月比上月 ${pct(s.revMoM)}` : ""]);
   }
-  let rev = rows.length ? `<h4>月營收對比（單位：新台幣）</h4><div class="tbl-wrap"><table class="tbl fin"><thead><tr><th>期間</th><th>今年</th><th>去年同期</th><th>年增率</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td>${r[2]}</td><td class="num ${String(r[3]).startsWith("+") ? "up" : String(r[3]).startsWith("-") ? "down" : ""}">${r[3]}</td></tr>`).join("")}</tbody></table></div>` : "";
+  let rev = rows.length ? `<h4>${m ? m.slice(0, 4) : ""} 年 ${m ? +m.slice(5) : ""} 月營收 vs 去年同期</h4><div class="tbl-wrap"><table class="tbl fin"><thead><tr><th>期間</th><th class="num">${m ? m.slice(0, 4) : "今年"}</th><th class="num">${m ? +m.slice(0, 4) - 1 : "去年"}</th><th class="num">增減</th></tr></thead><tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td><td class="num ${/^\+|比上月 \+/.test(r[3]) ? "up" : /^-|比上月 -/.test(r[3]) ? "down" : ""}">${r[3]}</td></tr>`).join("")}</tbody></table></div>` : "";
   if (s.rh && s.rh.length >= 2) {
     rev += `<p class="hint">近 ${s.rh.length} 個月：${s.rh.map(([mm, c, ly]) => `${+mm.slice(5)} 月 ${yi(c)}${ly ? `（${pct(ratio(c, ly))}）` : ""}`).join("、")}</p>`;
   }
@@ -226,7 +233,7 @@ function finHTML(s) {
     if (s.plPretax != null) r2.push(["稅前淨利", yi(s.plPretax), s.plOP != null && s.plPretax ? `業外 ${yi(s.plPretax - s.plOP)}` : ""]);
     if (s.plNI != null) r2.push(["稅後淨利（歸屬母公司）", yi(s.plNI), npm != null ? `淨利率 ${npm}%` : ""]);
     if (s.plEPS != null) r2.push(["每股盈餘 EPS", s.plEPS + " 元", ""]);
-    pl = `<h4>${plLabel(s)}損益（累計）</h4><div class="tbl-wrap"><table class="tbl fin"><thead><tr><th>項目</th><th>金額</th><th>比率</th></tr></thead><tbody>${r2.map(r => `<tr><td>${r[0]}</td><td class="num ${String(r[1]).startsWith("-") ? "down" : ""}">${r[1]}</td><td>${r[2]}</td></tr>`).join("")}</tbody></table></div>`;
+    pl = `<h4>${plLabel(s)}損益（累計）</h4><div class="tbl-wrap"><table class="tbl fin"><thead><tr><th>項目</th><th class="num">金額</th><th>比率</th></tr></thead><tbody>${r2.map(r => `<tr><td>${r[0]}</td><td class="num ${String(r[1]).startsWith("-") ? "down" : ""}">${r[1]}</td><td>${r[2]}</td></tr>`).join("")}</tbody></table></div>`;
   }
   return `<div class="fins">${rev ? `<div>${rev}</div>` : ""}${pl ? `<div>${pl}</div>` : ""}</div>`;
 }
@@ -480,9 +487,10 @@ const AUTH_ERR = {"Invalid login credentials": "Email 或密碼不對。", "User
 /* ---------------- method text ---------------- */
 function methodHTML() {
   return `<ul>
-  <li><b>資料</b>：證交所與櫃買中心官方 OpenAPI 的收盤價、本益比、殖利率、股價淨值比、月營收、公司基本資料，以及三大法人買賣超。每個交易日收盤後由 GitHub Actions 自動更新。目前資料日期 ${DB.date}，已累積 ${DB.historyDays} 天歷史。</li>
+  <li><b>資料</b>：證交所與櫃買中心官方 OpenAPI 的收盤價、本益比、殖利率、股價淨值比、月營收（本月、上月、去年同月、今年累計）、最新一期綜合損益表（營收、毛利、營業利益、稅後淨利、EPS）、公司基本資料，以及三大法人買賣超。每個交易日收盤後由 GitHub Actions 自動更新。目前資料日期 ${DB.date}，已累積 ${DB.historyDays} 天歷史。</li>
   <li><b>長期評分</b>（1–5 分）＝ 成長（月營收年增率，最高 2 分）＋ 估值（本益比和同產業中位數比，越低越高分；超過 80 倍扣分；虧損直接扣分）＋ 獲利品質（推算 ROE＝股價淨值比÷本益比）＋ 法人動向（最多 0.5 分）。記憶體是景氣循環股，估值分數最多 0.5 分；營收年增超過 300% 多半是基期太低，成長分數只給 1 分。</li>
   <li><b>波段評分</b> ＝ 三大法人近 20 日與 5 日買賣超（權重最高）＋ 近 20 日走勢（上漲但不過熱加分，20 日漲超過 25% 或 60 日漲超過 50% 扣分）＋ 成長與估值。${DB.shortMode !== "full" ? "歷史資料累積到 20 個交易日前，波段評分只用基本面估算。" : ""}</li>
+  <li><b>主要風險</b>依每檔的數據逐條產生：虧損或本業虧損、業外占比、毛利率偏低、本益比與同產業比、殖利率、營收年減或月減、單月與累計成長落差、法人賣超、短線漲幅、所屬題材或產業的特有風險、成交量與市值。</li>
   <li>評分 2 分以上、當日成交量至少 200 張的股票列入推薦清單。少數標的有人工研究筆記或調整，卡片上會寫明原因。</li>
   <li><b>公司規模</b>：大型股市值 1,000 億以上、中型 200–1,000 億、小型 200 億以下。小型股流動性較差，掛單建議用限價。</li>
   <li><b>預期波動</b>：年化波動假設低 18%、中 32%、高 50%，乘上持有時間（年）的平方根，得到這段期間的正常波動幅度。</li>

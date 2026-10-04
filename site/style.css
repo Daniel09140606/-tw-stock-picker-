@@ -176,3 +176,4 @@ details.stock[open]>summary{background:var(--accent-soft)}
 .fins .tbl-wrap{margin-top:0}
 table.tbl.fin{min-width:0;font-size:13px}
 table.tbl.fin td,table.tbl.fin th{padding:6px 8px;white-space:normal}
+table.tbl.fin td.num,table.tbl.fin th.num{white-space:nowrap;text-align:right}
