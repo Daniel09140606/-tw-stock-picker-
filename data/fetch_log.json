@@ -1,6 +1,6 @@
 {
-  "at": "2026-10-05T00:53+08:00",
-  "date": "2026-10-02",
+  "at": "2026-10-05T17:58+08:00",
+  "date": "2026-10-05",
   "sources": {
     "quotes_上市": {
       "ok": true,
@@ -21,7 +21,7 @@
     },
     "quotes_上櫃": {
       "ok": true,
-      "rows": 11928,
+      "rows": 12060,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -187,11 +187,11 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1338
+      "rows": 1341
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 910
+      "rows": 916
     },
     "income_上市_ci": {
       "ok": true,
