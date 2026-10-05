@@ -55,6 +55,7 @@ def fetch_quotes(log: dict) -> tuple[dict[str, dict], str | None]:
     """收盤價與成交量。回傳 {code: {...}}, 資料日期。"""
     out: dict[str, dict] = {}
     dates: list[str] = []
+    mdates: dict[str, str] = {}
     for mkt, url in (("上市", f"{TWSE}/exchangeReport/STOCK_DAY_ALL"),
                      ("上櫃", f"{TPEX}/tpex_mainboard_daily_close_quotes")):
         for r in _safe(f"quotes_{mkt}", url, log):
@@ -70,10 +71,94 @@ def fetch_quotes(log: dict) -> tuple[dict[str, dict], str | None]:
             d = roc_to_iso(pick(r, "Date", "資料日期", regex=r"(Date|日期)"))
             if d:
                 dates.append(d)
+                mdates[code] = d
             out[code] = {"code": code, "name": (name or "").strip(), "mkt": mkt, "price": close,
                          "chg": chg, "vol": vol}
     date = max(dates) if dates else None
+    log["quote_dates"] = {m: max((d for c, d in mdates.items() if out.get(c, {}).get("mkt") == m), default=None) for m in ("上市", "上櫃")}
+    refresh_today(out, log)
+    date = max([d for d in log["quote_dates"].values() if d] or ([date] if date else [])) or None
     return out, date
+
+
+def refresh_today(out: dict[str, dict], log: dict) -> None:
+    """OpenAPI 的收盤行情常常要到晚上甚至隔天才更新（2026/10/5 17:55 上市還是 10/2 的價格）。
+    若某市場的資料日期早於今天，改抓證交所／櫃買網站的當日收盤行情（收盤後約 14:30 就有）覆蓋。"""
+    now = dt.datetime.now(dt.timezone(dt.timedelta(hours=8)))
+    today = now.date()
+    if today.weekday() >= 5 or now.hour < 15:
+        return
+    for mkt, fn in (("上市", twse_quotes_day), ("上櫃", tpex_quotes_day)):
+        if (log["quote_dates"].get(mkt) or "") >= today.isoformat():
+            continue
+        try:
+            fresh = fn(today)
+        except Exception as e:  # noqa: BLE001
+            log[f"fresh_{mkt}"] = {"ok": False, "error": str(e)[:300]}
+            continue
+        log[f"fresh_{mkt}"] = {"ok": True, "rows": len(fresh)}
+        if len(fresh) < 300:   # 休市日或還沒公布
+            continue
+        for code, q in fresh.items():
+            if code in out and out[code]["mkt"] != mkt:
+                continue
+            out[code] = {**out.get(code, {"code": code, "mkt": mkt}), **q}
+        log["quote_dates"][mkt] = today.isoformat()
+
+
+def _fi(fields: list, *names: str, default: int | None = None) -> int | None:
+    f = [str(x).strip() for x in fields]
+    for n in names:
+        for i, x in enumerate(f):
+            if x.startswith(n):
+                return i
+    return default
+
+
+def twse_quotes_day(d: dt.date) -> dict[str, dict]:
+    j = get_json(f"https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date={d:%Y%m%d}&type=ALLBUT0999&response=json")
+    out: dict[str, dict] = {}
+    for t in j.get("tables") or []:
+        fields = t.get("fields") or []
+        if "證券代號" not in fields or "收盤價" not in fields:
+            continue
+        ci, ni, vi, pi = _fi(fields, "證券代號"), _fi(fields, "證券名稱"), _fi(fields, "成交股數"), _fi(fields, "收盤價")
+        si, di = _fi(fields, "漲跌(+/-)"), _fi(fields, "漲跌價差")
+        for row in t.get("data") or []:
+            price = num(row[pi])
+            if not price:
+                continue
+            diff = num(row[di]) if di is not None else None
+            sign = str(row[si]) if si is not None else ""
+            chg = None if diff is None else (-diff if "-" in sign else diff)
+            out[str(row[ci]).strip()] = {"name": str(row[ni]).strip(), "price": price, "chg": chg,
+                                         "vol": num(row[vi]) if vi is not None else None}
+    return out
+
+
+def tpex_quotes_day(d: dt.date) -> dict[str, dict]:
+    j = get_json("https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php"
+                 f"?l=zh-tw&o=json&d={_roc(d)}")
+    tables = j.get("tables") or [{}]
+    rows = j.get("aaData") or tables[0].get("data") or []
+    fields = tables[0].get("fields") or []
+    if j.get("reportDate") or j.get("date"):
+        rd = str(j.get("reportDate") or j.get("date")).replace("/", "")
+        if rd and rd not in (f"{d:%Y%m%d}", _roc(d).replace("/", "")):
+            return {}   # 回傳的不是今天的資料
+    ci, ni, pi = _fi(fields, "代號", default=0), _fi(fields, "名稱", default=1), _fi(fields, "收盤", default=2)
+    gi, vi = _fi(fields, "漲跌", default=3), _fi(fields, "成交股數", default=8)
+    out: dict[str, dict] = {}
+    for row in rows:
+        if len(row) <= max(ci, pi):
+            continue
+        price = num(row[pi])
+        if not price:
+            continue
+        out[str(row[ci]).strip()] = {"name": str(row[ni]).strip(), "price": price,
+                                     "chg": num(row[gi]) if len(row) > gi else None,
+                                     "vol": num(row[vi]) if len(row) > vi else None}
+    return out
 
 
 def fetch_valuation(log: dict) -> dict[str, dict]:
