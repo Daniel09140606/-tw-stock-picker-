@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-05T17:58+08:00",
+  "at": "2026-10-05T22:27+08:00",
   "date": "2026-10-05",
   "sources": {
     "quotes_上市": {
@@ -42,6 +42,14 @@
         "NextLimitUp",
         "NextLimitDown"
       ]
+    },
+    "quote_dates": {
+      "上市": "2026-10-05",
+      "上櫃": "2026-10-05"
+    },
+    "fresh_上市": {
+      "ok": true,
+      "rows": 1375
     },
     "valuation_上市": {
       "ok": true,
@@ -187,7 +195,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1341
+      "rows": 1344
     },
     "inst_上櫃": {
       "ok": true,
