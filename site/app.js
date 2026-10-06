@@ -63,13 +63,100 @@ const isRec = s => s.liq && scoreOf(s) >= 2;
 const sizeOk = s => state.sizes.includes(s.size);   // 配置建議選的公司規模
 const allSizes = () => ["L", "M", "S", "E"].every(k => state.sizes.includes(k));
 
-async function loadData() {
-  const r = await fetch("data/stocks.json", {cache: "no-cache"});
-  if (!r.ok) throw new Error("讀不到 data/stocks.json（" + r.status + "）");
-  DB = await r.json();
+/* 資料先從 GitHub 倉庫直接讀（每日更新後幾分鐘就是最新），失敗再讀網站內的 data/ */
+async function dataFetch(name, bust) {
+  const urls = [];
+  if (CFG.DATA_URL) urls.push(CFG.DATA_URL + name + (bust ? "?t=" + Date.now() : ""));
+  urls.push("data/" + name);
+  let last;
+  for (const u of urls) {
+    try { const r = await fetch(u, {cache: "no-cache"}); if (r.ok) return await r.json(); last = new Error(`讀不到 ${name}（${r.status}）`); }
+    catch (e) { last = e; }
+  }
+  throw last;
+}
+async function loadData(bust = false) {
+  const j = await dataFetch("stocks.json", bust);
+  if (DB && j.generated <= DB.generated && !bust) return;
+  DB = j; DB.live = null;
   S = DB.rows.map(row => { const o = {}; DB.fields.forEach((f, i) => o[f] = row[i]); o.themes = o.themes || []; o.etf = o.size === "E"; o.note = DB.notes[o.code] || {}; return o; });
   BY = Object.fromEntries(S.map(s => [s.code, s]));
   $("codeList").innerHTML = S.map(s => `<option value="${s.code}">${esc(s.name)}</option>`).join("");
+}
+
+/* ---------------- 刷新最新收盤價 ----------------
+   每日資料由 GitHub Actions 在 17:40 與 21:30 產生。上市股票另外可以直接從瀏覽器讀證交所當日行情（證交所允許跨網域讀取），
+   所以收盤後打開網頁或按「刷新」就能拿到當天上市收盤價；上櫃的櫃買中心不允許瀏覽器直接讀，只能等每日自動更新。 */
+const TPE_NOW = () => new Date(Date.now() + (480 + new Date().getTimezoneOffset()) * 60000);
+const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function lastCloseDay() {   // 最近一個已經收盤（14:00 後）的平日
+  const d = TPE_NOW(); if (d.getHours() < 14) d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return isoDay(d);
+}
+const curDate = mkt => (DB.live && DB.live[mkt]) || DB.date;
+async function liveTWSE() {
+  const r = await fetch("https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?type=ALLBUT0999&response=json&_=" + Date.now());
+  if (!r.ok) throw new Error("證交所 " + r.status);
+  const j = await r.json();
+  let date = String(j.date || "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  const out = {};
+  for (const t of j.tables || []) {
+    const f = (t.fields || []).map(x => String(x).trim()), ci = f.indexOf("證券代號"), pi = f.indexOf("收盤價");
+    if (ci < 0 || pi < 0) continue;
+    if (!/^\d{4}-/.test(date)) { const m = (t.title || "").match(/(\d+)年(\d+)月(\d+)日/); if (m) date = `${+m[1] + 1911}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`; }
+    const vi = f.indexOf("成交股數"), si = f.indexOf("漲跌(+/-)"), di = f.indexOf("漲跌價差");
+    for (const row of t.data || []) {
+      const p = parseFloat(String(row[pi]).replace(/,/g, "")); if (!(p > 0)) continue;
+      const diff = parseFloat(String(row[di]).replace(/,/g, "")), neg = String(row[si]).includes("-");
+      out[String(row[ci]).trim()] = {price: p, chg: isFinite(diff) ? +(neg ? -diff : diff).toFixed(2) : null, vol: Math.round(parseFloat(String(row[vi]).replace(/,/g, "")) / 1000) || 0};
+    }
+  }
+  return {date, out};
+}
+function applyLive(mkt, date, out) {
+  let n = 0;
+  S.forEach(s => {
+    const q = out[s.code]; if (s.mkt !== mkt || !q) return;
+    const k = q.price / s.price;
+    if (s.pe) s.pe = +(s.pe * k).toFixed(2); if (s.pb) s.pb = +(s.pb * k).toFixed(2); if (s.yld) s.yld = +(s.yld / k).toFixed(2); if (s.cap) s.cap = Math.round(s.cap * k);
+    s.price = q.price; s.chg = q.chg; s.vol = q.vol; n++;
+  });
+  DB.live = {...(DB.live || {}), [mkt]: date};
+  return n;
+}
+/* force：使用者按按鈕。自動模式只在資料比最近收盤日舊時才去抓。 */
+async function refreshLive(force) {
+  const want = lastCloseDay(), msgs = [];
+  if (!force && curDate("上市") >= want) return "";
+  try {
+    const {date, out} = await liveTWSE();
+    if (date && date > curDate("上市") && Object.keys(out).length > 300) msgs.push(`上市更新到 ${date.slice(5).replace("-", "/")} 收盤（${applyLive("上市", date, out)} 檔）`);
+  } catch (e) { msgs.push("證交所即時行情暫時讀不到"); }
+  return msgs.join("；");
+}
+function redrawAll() {
+  GSTAT = null; render(); $("stamp").innerHTML = stampHTML(); $("methodBody").innerHTML = methodHTML();
+  const up = S.filter(s => s.chg > 0).length, dn = S.filter(s => s.chg < 0).length;
+  $("market").innerHTML = `<span>上漲 <b class="up">${up}</b> 檔</span><span>下跌 <b class="down">${dn}</b> 檔</span><span>每日資料產生 <b>${esc(DB.generated.replace("T", " ").slice(0, 16))}</b></span>${DB.live ? `<span>上市即時更新到 <b>${curDate("上市")}</b></span>` : ""}<span>歷史資料 <b>${DB.historyDays}</b> 天</span>`;
+}
+function stampHTML() {
+  const a = curDate("上市"), b = DB.date;
+  const d = a === b ? `資料日期 <b>${b}</b>` : `上市 <b>${a}</b> · 上櫃 <b>${b}</b>`;
+  return `${d}<br>上市櫃 ${S.length} 檔 · 紅漲綠跌`;
+}
+async function doRefresh(btn) {
+  const msg = $("refreshMsg"), before = curDate("上市") + "|" + DB.date;
+  btn.disabled = true; btn.textContent = "刷新中…"; msg.textContent = "";
+  try { await loadData(true); NEWS = null; newsLoading = null; } catch (e) { msg.textContent = "讀取每日資料失敗：" + e.message; }
+  const live = await refreshLive(true);
+  redrawAll();
+  if (lastAnalysis) analyze($("aCode").value, +$("aPrice").value || 0);
+  const after = curDate("上市") + "|" + DB.date, want = lastCloseDay();
+  let t = live || (after === before ? "已經是目前能取得的最新資料" : "已載入最新的每日資料");
+  if (DB.date < want) t += `。上櫃股價、法人與本益比要等每天 17:40、21:30 的自動更新`;
+  msg.textContent = t + "。";
+  btn.disabled = false; btn.textContent = "↻ 刷新最新資料";
 }
 
 /* ---------------- allocation ---------------- */
@@ -361,7 +448,7 @@ const oneLine = s => (s.note.why || autoWhy(s))[0];
 
 /* ---------------- 最新消息（GitHub Actions 每天抓的新聞標題與重大訊息） ---------------- */
 let NEWS = null, newsLoading = null;
-function loadNews() { if (!newsLoading) newsLoading = fetch("data/news.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).catch(() => null).then(j => NEWS = j || {news: {}, ann: {}, covered: []}); return newsLoading; }
+function loadNews() { if (!newsLoading) newsLoading = dataFetch("news.json").catch(() => null).then(j => NEWS = j || {news: {}, ann: {}, covered: []}); return newsLoading; }
 const yahooNews = s => `https://tw.stock.yahoo.com/quote/${s.code}.${s.mkt === "上櫃" ? "TWO" : "TW"}/news`;
 const googleNews = s => `https://news.google.com/search?q=${encodeURIComponent(s.name + " " + s.code)}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
 const TONE = {1: `<span class="tone pos">偏正面</span>`, "-1": `<span class="tone neg">偏負面</span>`, 0: ""};
@@ -387,7 +474,7 @@ function attachNews(root) {
 /* ---------------- 上下游（產業價值鏈資訊平台，每週更新） ---------------- */
 let CHAIN = null, CIDX = null, chainLoading = null;
 function loadChains() {
-  if (!chainLoading) chainLoading = fetch("data/chains.json", {cache: "no-cache"}).then(r => r.ok ? r.json() : null).catch(() => null).then(j => {
+  if (!chainLoading) chainLoading = dataFetch("chains.json").catch(() => null).then(j => {
     CHAIN = j || {ind: {}}; CIDX = {};
     Object.entries(CHAIN.ind).forEach(([ic, [, segs]]) => segs.forEach((sg, si) => sg[3].forEach(([sub, codes]) => codes.forEach(c => {
       const a = CIDX[c] = CIDX[c] || []; let hit = a.find(x => x.ic === ic && x.si === si);
@@ -696,7 +783,7 @@ const AUTH_ERR = {"Invalid login credentials": "Email 或密碼不對。", "User
 /* ---------------- method text ---------------- */
 function methodHTML() {
   return `<ul>
-  <li><b>資料</b>：證交所與櫃買中心官方 OpenAPI 的收盤價、本益比、殖利率、股價淨值比、月營收（本月、上月、去年同月、今年累計）、最新一期綜合損益表（營收、毛利、營業利益、稅後淨利、EPS）、公司基本資料，以及三大法人買賣超。每個交易日收盤後由 GitHub Actions 自動更新。目前資料日期 ${DB.date}，已累積 ${DB.historyDays} 天歷史。</li>
+  <li><b>資料</b>：證交所與櫃買中心官方 OpenAPI 的收盤價、本益比、殖利率、股價淨值比、月營收（本月、上月、去年同月、今年累計）、最新一期綜合損益表（營收、毛利、營業利益、稅後淨利、EPS）、公司基本資料，以及三大法人買賣超。每個交易日收盤後由 GitHub Actions 自動更新。目前資料日期 ${DB.date}${curDate("上市") !== DB.date ? `（上市收盤價已即時更新到 ${curDate("上市")}）` : ""}，已累積 ${DB.historyDays} 天歷史。</li>
   <li><b>長期評分</b>（1–5 分）＝ 成長（月營收年增率，最高 2 分）＋ 估值（本益比和同產業中位數比，越低越高分；超過 80 倍扣分；虧損直接扣分）＋ 獲利品質（推算 ROE＝股價淨值比÷本益比）＋ 法人動向（最多 0.5 分）。記憶體是景氣循環股，估值分數最多 0.5 分；營收年增超過 300% 多半是基期太低，成長分數只給 1 分。</li>
   <li><b>波段評分</b> ＝ 三大法人近 20 日與 5 日買賣超（權重最高）＋ 近 20 日走勢（上漲但不過熱加分，20 日漲超過 25% 或 60 日漲超過 50% 扣分）＋ 成長與估值。${DB.shortMode !== "full" ? "歷史資料累積到 20 個交易日前，波段評分只用基本面估算。" : ""}</li>
   <li><b>主要風險</b>依每檔的數據逐條產生：虧損或本業虧損、業外占比、毛利率偏低、本益比與同產業比、殖利率、營收年減或月減、單月與累計成長落差、法人賣超、短線漲幅、所屬題材或產業的特有風險、成交量與市值。</li>
@@ -787,7 +874,8 @@ function alertMsg(t) { const m = $("mineMsg"); m.textContent = t; m.classList.ad
 async function boot() {
   try { await loadData(); }
   catch (e) { $("stamp").textContent = "資料載入失敗"; $("groups").innerHTML = `<div class="empty">${esc(e.message)}。GitHub Actions 第一次跑完後才會有資料。</div>`; return; }
-  $("stamp").innerHTML = `資料日期 <b>${DB.date}</b><br>上市櫃 ${S.length} 檔 · 紅漲綠跌`;
+  $("stamp").innerHTML = stampHTML();
+  $("refreshBtn").addEventListener("click", e => doRefresh(e.currentTarget));
   const up = S.filter(s => s.chg > 0).length, dn = S.filter(s => s.chg < 0).length;
   $("market").innerHTML = `<span>上漲 <b class="up">${up}</b> 檔</span><span>下跌 <b class="down">${dn}</b> 檔</span><span>更新時間 <b>${esc(DB.generated.replace("T", " ").slice(0, 16))}</b></span><span>歷史資料 <b>${DB.historyDays}</b> 天</span>`;
   $("methodBody").innerHTML = methodHTML();
@@ -801,7 +889,9 @@ async function boot() {
     });
   }
   await loadUserData().catch(e => console.warn(e));
-  accountUI(); render(); show(location.hash.slice(1) || "alloc", false);
+  accountUI(); redrawAll(); show(location.hash.slice(1) || "alloc", false);
+  // 每日資料比最近收盤日舊時，背景直接向證交所拿上市收盤價
+  refreshLive(false).then(m => { if (m) { redrawAll(); if (lastAnalysis) analyze($("aCode").value, +$("aPrice").value || 0); $("refreshMsg").textContent = m + "。"; } });
 }
 boot();
 })();

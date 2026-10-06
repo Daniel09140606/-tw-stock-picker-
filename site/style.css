@@ -248,3 +248,7 @@ table.tbl.fin td.num,table.tbl.fin th.num{white-space:nowrap;text-align:right}
 .cmore{width:100%}
 .cmore summary{font-size:12.5px;color:var(--muted);cursor:pointer;margin:4px 0}
 @media (max-width:640px){.cseg{grid-template-columns:1fr}.cseg-n{padding-top:0}}
+
+.refresh{margin-top:8px;width:100%}
+#refreshMsg{margin:6px 0 0;font-size:12px}
+@media (max-width:860px){.refresh{width:auto}}

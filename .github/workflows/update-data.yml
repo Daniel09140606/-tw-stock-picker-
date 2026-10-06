@@ -39,7 +39,9 @@ jobs:
           git add data site/data
           if git diff --cached --quiet; then echo "沒有新資料"; exit 0; fi
           git commit -m "資料更新 $(date -u -d '+8 hours' +%F)"
-          git push
+          # 執行期間 main 可能有新的提交（例如改網站），先 rebase 再推，最多試 3 次
+          for i in 1 2 3; do git pull --rebase -q origin main && git push && exit 0; sleep 10; done
+          exit 1
 
   deploy:
     needs: update
