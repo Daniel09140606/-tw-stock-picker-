@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-08T17:57+08:00",
+  "at": "2026-10-08T21:46+08:00",
   "date": "2026-10-08",
   "sources": {
     "quotes_上市": {
@@ -65,7 +65,7 @@
     },
     "valuation_上櫃": {
       "ok": true,
-      "rows": 886,
+      "rows": 885,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -195,7 +195,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1322
+      "rows": 1325
     },
     "inst_上櫃": {
       "ok": true,
