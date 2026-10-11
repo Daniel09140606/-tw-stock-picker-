@@ -754,10 +754,10 @@ function ladderHTML(L, etf) {
     : `<li>${etf ? "ETF 可改為每月定期定額，不必等回檔。" : "月營收年增率連兩個月轉負：減碼一半。"}</li><li>第二筆沒回檔到就不追；預計持有 ${d}，期滿重新評估。</li>`;
   return `<table class="ladder"><tbody>${h}</tbody></table><ul class="rules">${why}${rules}</ul>`;
 }
-const TABS = s => [["info", "數據與理由"], ["price", "進出場價"], ["short", "短線與籌碼"], ["inst", "三大法人"], ["chain", s.etf ? "持股與配息" : "上下游"], ["news", "最新消息"]];
+const TABS = s => [["info", "數據與理由", "📊"], ["price", "進出場價", "🎯"], ["short", "短線與籌碼", "📈"], ["inst", "三大法人", "🏦"], ["chain", s.etf ? "持股與配息" : "上下游", "🔗"], ["news", "最新消息", "📰"]];
 function openTab(btn) {
-  const body = btn.closest(".stabs").parentElement, k = btn.dataset.tab;
-  body.querySelectorAll(":scope > .stabs [data-tab]").forEach(b => b.setAttribute("aria-selected", b === btn));
+  const body = btn.closest(".stabs-wrap").parentElement, k = btn.dataset.tab;
+  body.querySelectorAll(":scope > .stabs-wrap [data-tab]").forEach(b => b.setAttribute("aria-selected", b === btn));
   body.querySelectorAll(":scope > .tpanel").forEach(p => {
     const on = p.dataset.panel === k; p.hidden = !on;
     if (on && !p.dataset.loaded) { p.dataset.loaded = "1"; attachAll(p); }
@@ -779,7 +779,7 @@ function stockBody(s, opts = {}) {
   const src = [[`FinLab ${s.code}`, FINLAB(s.code)], [`Goodinfo ${s.code}`, GOODINFO(s.code)], ...(n.src || [])];
   return `<div class="tags">${tags.join("")}</div>${buy}
    ${opts.price && opts.price !== s.price ? `<p class="hint">價位用你輸入的現價 ${fmt(opts.price)} 計算；其他數據是 ${DB.date} 的資料。</p>` : ""}
-   <div class="stabs" role="tablist" aria-label="${esc(s.name)} 分析內容">${TABS(s).map(([k, t], i) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${i === 0}">${t}</button>`).join("")}</div>
+   <div class="stabs-wrap"><span class="stabs-lbl">點選分頁查看 ▸</span><div class="stabs" role="tablist" aria-label="${esc(s.name)} 分析內容">${TABS(s).map(([k, t, ic], i) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${i === 0}"><span class="ti" aria-hidden="true">${ic}</span>${t}</button>`).join("")}</div></div>
    <div class="tpanel" data-panel="info" role="tabpanel">
      <div class="metrics">${metricsOf(s).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
      ${finHTML(s)}
