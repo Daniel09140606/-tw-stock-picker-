@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import DATA, HISTORY, SESSION, SITE_DATA, TPE, get_json, read_json, roc_to_iso, write_json  # noqa: E402
 from news import GOOD, SKIP, tone  # noqa: E402
-from sources import fetch_taiex_month  # noqa: E402
+from sources import fetch_market_inst, fetch_taiex_month  # noqa: E402
 
 FC_DIR = DATA / "forecast"
 MARKET = DATA / "market.json"
@@ -49,6 +49,14 @@ def load_holidays(log: dict) -> None:
         log["holidays"] = len(HOLIDAYS)
     except Exception as e:  # noqa: BLE001
         log["holidays"] = str(e)[:120]
+
+
+def decide(x: float, k: float, lo: float, hi: float) -> int:
+    """把分數轉成上漲機率；一定給方向，不會剛好 50%。"""
+    p = int(round(clamp(50 + k * x, lo, hi)))
+    if p == 50:
+        p = 51 if x >= 0 else 49
+    return p
 
 
 def next_weekday(iso: str) -> str:
@@ -165,12 +173,12 @@ def track_record(taiex: list[list]) -> dict:
         for c, p in (fc.get("stocks") or {}).items():
             if c in now and c in prev and prev[c]:
                 r = now[c] / prev[c] - 1
-                if abs(r) < 0.001 or 45 <= p <= 55:
+                if abs(r) < 0.001 or p == 50:
                     continue
                 n += 1
-                ok = (p > 55 and r > 0) or (p < 45 and r < 0)
+                ok = (p > 50 and r > 0) or (p < 50 and r < 0)
                 hit += ok
-                if p >= 62 or p <= 38:
+                if p >= 60 or p <= 40:
                     strong[1] += 1
                     strong[0] += ok
         st[0] += hit
@@ -178,9 +186,9 @@ def track_record(taiex: list[list]) -> dict:
         mp, mact = fc.get("market"), None
         if tgt in tx and tx[tgt][1]:
             mact = round(tx[tgt][2] / (tx[tgt][1] - tx[tgt][2]) * 100, 2)
-            if mp is not None and not 45 <= mp <= 55:
+            if mp is not None and mp != 50:
                 mk[1] += 1
-                mk[0] += (mp > 55 and mact > 0) or (mp < 45 and mact < 0)
+                mk[0] += (mp > 50 and mact > 0) or (mp < 50 and mact < 0)
         recent.append([tgt, mp, mact, hit, n])
     return {"mkt": mk, "stk": st, "strong": strong, "recent": recent[-20:]}
 
@@ -240,12 +248,22 @@ def main() -> int:
     dn = sum(1 for r in stocks_only if (r.get("chg") or 0) < 0)
     f_breadth = clamp(((up / (up + dn)) - 0.5) * 2.5) if up + dn else 0.0
     inst_total = sum(r.get("inst") or 0 for r in stocks_only)
-    f_flow = math.tanh(inst_total / 150000)
+    lots3 = {k: sum(r.get(k) or 0 for r in stocks_only) for k in ("fi", "it", "dl")}   # 外資、投信、自營商（張）
+    amt = None
+    try:
+        amt = fetch_market_inst(dt.date.fromisoformat(db["date"]))   # 上市三大法人買賣金額（億元）
+    except Exception as e:  # noqa: BLE001
+        log["inst_amount"] = str(e)[:120]
+    if amt:
+        # 外資影響最大；投信連續性高；自營商多為短線避險，權重最低
+        f_flow = math.tanh((amt["fi"] + 0.8 * amt["it"] + 0.4 * amt["dl"]) / 250)
+    else:
+        f_flow = math.tanh((lots3["fi"] + 0.8 * lots3["it"] + 0.4 * lots3["dl"]) / 150000) if any(lots3.values()) else math.tanh(inst_total / 150000)
     mnews = market_news()
     pos, neg = sum(1 for x in mnews if x[4] > 0), sum(1 for x in mnews if x[4] < 0)
     f_news = clamp((pos - neg) / max(4, len(mnews)) * 1.5)
     z = 0.35 * f_us + 0.2 * f_trend + 0.15 * f_breadth + 0.15 * f_flow + 0.15 * f_news
-    mprob = int(round(clamp(50 + 22 * z, 28, 72)))
+    mprob = decide(z, 30, 22, 78)
 
     # 個股因子
     news_since = (dt.date.fromisoformat(db["date"]) - dt.timedelta(days=1)).isoformat()
@@ -276,7 +294,10 @@ def main() -> int:
             t -= 0.3
         t = clamp(t / 1.0)
         f = 0.0
-        if r.get("inst") is not None and r.get("vol"):
+        if r.get("vol") and r.get("fi") is not None:
+            # 外資、投信、自營商分開加權：投信買賣通常較有延續性，自營商多為避險
+            f += clamp(((r.get("fi") or 0) + 1.3 * (r.get("it") or 0) + 0.4 * (r.get("dl") or 0)) / r["vol"] * 4, -0.6, 0.6)
+        elif r.get("inst") is not None and r.get("vol"):
             f += clamp(r["inst"] / r["vol"] * 4, -0.6, 0.6)
         if r.get("f5") is not None:
             f += 0.25 if r["f5"] > 0 else -0.25 if r["f5"] < 0 else 0
@@ -296,7 +317,7 @@ def main() -> int:
         npos, nneg = sum(1 for x in items if x[4] > 0), sum(1 for x in items if x[4] < 0)
         n = clamp((npos - nneg) * 0.3)
         total = 0.35 * m + 0.25 * t + 0.2 * f + 0.1 * c + 0.1 * n
-        prob = int(round(clamp(50 + 22 * total, 25, 75)))
+        prob = decide(total if total else m + t * 0.1, 28, 22, 78)
         out_stocks[r["code"]] = [prob, round(m, 2), round(t, 2), round(f, 2), round(c, 2), round(n, 2), npos, nneg]
 
     FC_DIR.mkdir(parents=True, exist_ok=True)
@@ -309,7 +330,7 @@ def main() -> int:
         "market": {"prob": mprob, "z": round(z, 3),
                    "f": {"us": round(f_us, 2), "trend": round(f_trend, 2), "breadth": round(f_breadth, 2),
                          "flow": round(f_flow, 2), "news": round(f_news, 2)},
-                   "up": up, "down": dn, "inst": inst_total, "taiex": tx_info, "us": us_items, "semiUs": round(semi_us, 2),
+                   "up": up, "down": dn, "inst": inst_total, "instLots": lots3, "instAmt": amt, "taiex": tx_info, "us": us_items, "semiUs": round(semi_us, 2),
                    "news": mnews},
         "fields": ["prob", "mkt", "tech", "flow", "chip", "news", "npos", "nneg"],
         "stocks": out_stocks, "track": track, "log": log,

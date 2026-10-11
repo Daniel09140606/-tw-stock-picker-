@@ -261,40 +261,94 @@ def _roc(d: dt.date) -> str:
     return f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
 
 
-def fetch_institutional(date_iso: str | None, log: dict) -> dict[str, float]:
-    """三大法人當日買賣超（張）。上市用 T86，上櫃用 3itrade。失敗就回傳空的。"""
-    out: dict[str, float] = {}
+def fetch_institutional(date_iso: str | None, log: dict) -> dict[str, dict]:
+    """三大法人當日買賣超（張），分開外資（含外資自營商）、投信、自營商與合計。
+    上市用 T86，上櫃用 3itrade。回傳 {代號: {"t": 合計, "fi": 外資, "it": 投信, "dl": 自營商}}。"""
+    out: dict[str, dict] = {}
     if not date_iso:
         return out
     d = dt.date.fromisoformat(date_iso)
+    k = lambda v: None if v is None else round(v / 1000)
+
+    def cols(fields: list[str]) -> dict:
+        f = [str(x).replace(" ", "") for x in fields]
+        fi = [i for i, x in enumerate(f) if "買賣超" in x and ("外陸資" in x or "外資自營商" in x) and "外資及陸資買賣超" not in x]
+        fi_all = next((i for i, x in enumerate(f) if ("外資及陸資-買賣超" in x or "外資及陸資買賣超" in x) and "不含" not in x), None)
+        it = next((i for i, x in enumerate(f) if "投信" in x and "買賣超" in x), None)
+        dl = next((i for i, x in enumerate(f) if "自營商" in x and "買賣超" in x and "外資" not in x and "自行" not in x and "避險" not in x), None)
+        t = next((i for i, x in enumerate(f) if "三大法人" in x and "買賣超" in x), None)
+        return {"fi": [fi_all] if fi_all is not None else fi, "it": it, "dl": dl, "t": t}
+
+    def put(code, row, c):
+        g = lambda i: num(row[i]) if i is not None and i < len(row) else None
+        fi = [g(i) for i in c["fi"]]
+        rec = {"t": k(g(c["t"])), "fi": k(sum(x for x in fi if x is not None)) if any(x is not None for x in fi) else None,
+               "it": k(g(c["it"])), "dl": k(g(c["dl"]))}
+        if rec["t"] is None and None not in (rec["fi"], rec["it"], rec["dl"]):
+            rec["t"] = rec["fi"] + rec["it"] + rec["dl"]
+        if rec["t"] is not None:
+            out[str(code).strip()] = rec
+
     # 上市
     try:
         j = get_json(f"https://www.twse.com.tw/rwd/zh/fund/T86?date={d:%Y%m%d}&selectType=ALLBUT0999&response=json")
-        fields = j.get("fields") or []
-        idx = next((i for i, f in enumerate(fields) if "三大法人買賣超" in f), None)
-        for row in j.get("data") or []:
-            if idx is not None:
-                v = num(row[idx])
-                if v is not None:
-                    out[str(row[0]).strip()] = round(v / 1000)
-        log["inst_上市"] = {"ok": True, "rows": len(j.get("data") or [])}
+        fields, rows = _rows_fields(j)
+        c = cols(fields)
+        for row in rows:
+            put(row[0], row, c)
+        log["inst_上市"] = {"ok": True, "rows": len(rows), "cols": {kk: v for kk, v in c.items()}}
     except Exception as e:  # noqa: BLE001
         log["inst_上市"] = {"ok": False, "error": str(e)[:300]}
     # 上櫃
     try:
         j = get_json("https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php"
                      f"?l=zh-tw&o=json&se=EW&t=D&d={_roc(d)}")
-        rows = j.get("aaData") or (j.get("tables") or [{}])[0].get("data") or []
+        fields, rows = _rows_fields(j)
+        if not rows:
+            rows = j.get("aaData") or (j.get("tables") or [{}])[0].get("data") or []
+        c = cols(fields) if fields else {}
+        if not c or c["it"] is None:
+            # 舊格式：代號,名稱,外資(不含自營)買/賣/超,外資自營商買/賣/超,外資合計買/賣/超,投信買/賣/超,自營自行買/賣/超,自營避險買/賣/超,自營合計買/賣/超,三大法人
+            c = {"fi": [10], "it": 13, "dl": 22, "t": 23}
         n = 0
         for row in rows:
-            # 最後一欄是三大法人買賣超股數合計
-            v = num(row[-1])
-            if v is not None:
-                out[str(row[0]).strip()] = round(v / 1000)
+            if len(row) > 13:
+                put(row[0], row, c)
                 n += 1
-        log["inst_上櫃"] = {"ok": True, "rows": n}
+        log["inst_上櫃"] = {"ok": True, "rows": n, "cols": c}
     except Exception as e:  # noqa: BLE001
         log["inst_上櫃"] = {"ok": False, "error": str(e)[:300]}
+    return out
+
+
+def fetch_market_inst(d: dt.date) -> dict | None:
+    """上市三大法人買賣金額（億元）：外資（含外資自營商）、投信、自營商、合計。"""
+    j = get_json(f"https://www.twse.com.tw/rwd/zh/fund/BFI82U?type=day&dayDate={d:%Y%m%d}&response=json")
+    rows = j.get("data") or []
+    if not rows:
+        for t in j.get("tables") or []:
+            if t.get("data"):
+                rows = t["data"]
+                break
+    out = {"fi": 0.0, "it": 0.0, "dl": 0.0}
+    hit = False
+    for r in rows:
+        name, net = str(r[0]), num(r[-1])
+        if net is None:
+            continue
+        if "外資" in name:
+            out["fi"] += net / 1e8
+            hit = True
+        elif "投信" in name:
+            out["it"] += net / 1e8
+            hit = True
+        elif "自營商" in name:
+            out["dl"] += net / 1e8
+            hit = True
+    if not hit:
+        return None
+    out = {kk: round(v, 1) for kk, v in out.items()}
+    out["t"] = round(out["fi"] + out["it"] + out["dl"], 1)
     return out
 
 

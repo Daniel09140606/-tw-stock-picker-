@@ -488,7 +488,7 @@ function newsHTML(s) {
   return `<div class="newsbox"><div class="news-h"><h4>最新消息</h4><span class="hint" style="margin:0">更新 ${esc((NEWS.generated || "").replace("T", " ").slice(0, 16))}</span></div><p class="news-sum">${sum}</p>${annHTML}${nHTML}<p class="hint">正面／負面是依標題關鍵字粗判，只是提示，請點開原文自己判斷。更多：<a href="${yahooNews(s)}" target="_blank" rel="noopener">Yahoo 股市新聞</a>、<a href="${googleNews(s)}" target="_blank" rel="noopener">Google 新聞</a></p></div>`;
 }
 function attachNews(root) {
-  root.querySelectorAll("[data-news]").forEach(el => {
+  root.querySelectorAll("[data-news]").forEach(el => { if (el.closest(".tpanel[hidden]")) return;
     const s = BY[el.dataset.news]; if (!s) return;
     if (NEWS) { el.innerHTML = newsHTML(s); return; }
     el.innerHTML = `<p class="hint">載入最新消息中…</p>`;
@@ -537,7 +537,7 @@ function chainHTML(s, pick = 0) {
   return `<div class="chainbox"><div class="news-h"><h4>上下游產業鏈</h4><span class="hint" style="margin:0">${hits.length > 1 ? `出現在 ${hits.length} 個環節 · ` : ""}點公司名稱看分析</span></div>${tabs}<div class="cbody">${chainIndHTML(s, hits[Math.min(pick, hits.length - 1)])}</div></div>`;
 }
 function attachChain(root) {
-  root.querySelectorAll("[data-chain]").forEach(el => {
+  root.querySelectorAll("[data-chain]").forEach(el => { if (el.closest(".tpanel[hidden]")) return;
     const s = BY[el.dataset.chain]; if (!s) return;
     const draw = () => { el.innerHTML = chainHTML(s); el.onclick = e => { const t = e.target.closest("[data-ctab]"); if (t) el.innerHTML = chainHTML(s, +t.dataset.ctab); }; };
     if (CHAIN) { draw(); return; }
@@ -666,12 +666,13 @@ function obsItems(s) {
     if (s.ch20 != null) txt += `，近 20 日${s.ch20 >= 0 ? "漲" : "跌"} ${Math.abs(s.ch20)}%`;
     if (s.hi20 && s.price < s.hi20) txt += `，離近 20 日高點 ${fmt(s.hi20)} 還有 ${((s.hi20 / s.price - 1) * 100).toFixed(1)}%`;
     else if (s.hi20 && s.price >= s.hi20) txt += `，創近 20 日新高`;
-    it.push([a20 && a60 !== false ? 1 : !a20 && a60 === false ? -1 : 0, txt + `。${A("Yahoo 技術分析", yq("technical-analysis"))}・線形圖見下方`]);
+    it.push([a20 && a60 !== false ? 1 : !a20 && a60 === false ? -1 : 0, txt + `。${A("Yahoo 技術分析", yq("technical-analysis"))}・線形圖見上方`]);
   }
   if (s.rsi != null && (s.rsi >= 75 || s.rsi <= 30)) it.push([s.rsi >= 75 ? -1 : 0, `<b>短線熱度</b>：14 日 RSI ${s.rsi}，${s.rsi >= 75 ? "短線過熱，容易拉回" : "短線超賣，可能出現跌深反彈，但趨勢未必反轉"}。`]);
   if (s.inst != null) {
     const r = s.vol ? Math.round(s.inst / s.vol * 100) : null;
-    it.push([Math.sign(s.f5 ?? s.inst) || 0, `<b>法人</b>：三大法人今天${s.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(s.inst))} 張${r != null ? `（約占成交量 ${Math.abs(r)}%）` : ""}${s.f5 != null ? `，近 5 日 ${lots(s.f5)}` : ""}${s.f20 != null ? `、近 20 日 ${lots(s.f20)}` : ""}。${A("Yahoo 法人買賣", yq("institutional-trading"))}${twse ? `・${A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/t86.html")}` : ""}`]);
+    const parts = INSTN.filter(([k]) => s[k] != null).map(([k, n]) => `${n} ${s[k] > 0 ? "+" : ""}${fmt(s[k])}`).join("、");
+    it.push([Math.sign(s.f5 ?? s.inst) || 0, `<b>法人</b>：今天${parts ? `${parts} 張（合計 ${s.inst > 0 ? "+" : ""}${fmt(s.inst)}）` : `三大法人${s.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(s.inst))} 張`}${r != null ? `，約占成交量 ${Math.abs(r)}%` : ""}${s.f5 != null ? `，近 5 日 ${lots(s.f5)}` : ""}${s.f20 != null ? `、近 20 日 ${lots(s.f20)}` : ""}。${A("Yahoo 法人買賣", yq("institutional-trading"))}${twse ? `・${A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/t86.html")}` : ""}`]);
   }
   if (s.ls != null || s.lb != null) {
     const ratio = s.ls20 ? s.ls / Math.max(s.ls20, 1) : null, big = ratio && ratio >= 2 && s.vol && s.ls > 0.05 * s.vol;
@@ -694,14 +695,52 @@ function obsHTML(s, ser, L) {
   return `<div class="obsbox"><h4>短線動態與籌碼 <small>每一項都附查核連結</small></h4>${chartSVG(s, ser, L)}<ul class="obs">${its.map(([t, h]) => `<li>${TONEMARK[t]}<span>${h}</span></li>`).join("")}</ul>${s.chipDate ? "" : ""}<p class="hint">籌碼資料：證交所／櫃買中心每日公告（融資融券、借券賣出、三大法人），資料日期 ${DB.date}。</p></div>`;
 }
 function attachObs(root) {
-  root.querySelectorAll("[data-obs]").forEach(el => {
+  root.querySelectorAll("[data-obs]").forEach(el => { if (el.closest(".tpanel[hidden]")) return;
     const s = BY[el.dataset.obs]; if (!s) return;
     const price = +el.dataset.price || s.price;
     el.innerHTML = `<p class="hint">載入線形圖與籌碼中…</p>`;
     Promise.all([loadSeries(s.code), loadNews()]).then(([ser]) => { el.innerHTML = obsHTML(s, ser, levels(s, price)); });
   });
 }
-function attachAll(root) { attachChain(root); attachNews(root); attachObs(root); }
+
+/* ---------------- 三大法人分開看 ---------------- */
+const INSTN = [["fi", "外資", "外資及陸資（含外資自營商）"], ["it", "投信", "國內投信（基金）"], ["dl", "自營商", "證券商自營部（含避險）"]];
+const signLots = v => v == null ? "—" : `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "+" : ""}${fmt(v)}</span>`;
+function instSummary(s) {
+  const xs = INSTN.map(([k, n]) => [n, s[k]]).filter(x => x[1] != null);
+  if (!xs.length) return "";
+  const buy = xs.filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]), sell = xs.filter(x => x[1] < 0).sort((a, b) => a[1] - b[1]);
+  return `今天${buy.length ? `買最多的是<b class="up">${buy[0][0]}</b>（+${fmt(buy[0][1])} 張）` : "三大法人沒有人買超"}，${sell.length ? `賣最多的是<b class="down">${sell[0][0]}</b>（${fmt(sell[0][1])} 張）` : "沒有人賣超"}。`;
+}
+function instBars(arr, dates) {
+  const v = (arr || []).map(x => x ?? 0); if (!v.length) return "";
+  const mx = Math.max(...v.map(Math.abs), 1), W = 200, H = 40, bw = W / v.length;
+  return `<svg viewBox="0 0 ${W} ${H}" class="ibars" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="var(--line)"/>${v.map((x, i) => { const h = Math.abs(x) / mx * (H / 2 - 1); return `<rect x="${(i * bw + bw * .15).toFixed(1)}" width="${(bw * .7).toFixed(1)}" y="${(x >= 0 ? H / 2 - h : H / 2).toFixed(1)}" height="${Math.max(h, x ? .8 : 0).toFixed(1)}" fill="${x >= 0 ? "var(--up)" : "var(--down)"}"><title>${dates?.[i] || ""} ${x > 0 ? "+" : ""}${fmt(x)} 張</title></rect>`; }).join("")}</svg>`;
+}
+function instHTML(s, ser) {
+  const twse = s.mkt === "上市";
+  const has3 = INSTN.some(([k]) => s[k] != null);
+  const rows = has3 ? INSTN.map(([k, n, d]) => `<tr><th>${n}<small>${d}</small></th><td class="num">${signLots(s[k])}</td><td class="num">${signLots(s[k + "5"])}</td><td class="num">${signLots(s[k + "20"])}</td><td class="bc">${instBars(ser?.[k]?.[s.code], (ser?.dates || []).slice(-20))}</td></tr>`).join("") : "";
+  const tot = `<tr class="tot"><th>合計</th><td class="num">${signLots(s.inst)}</td><td class="num">${signLots(s.f5)}</td><td class="num">${signLots(s.f20)}</td><td class="bc">${instBars(ser?.f?.[s.code], (ser?.dates || []).slice(-20))}</td></tr>`;
+  const vr = s.vol && s.inst != null ? `今天三大法人合計占成交量約 ${Math.abs(Math.round(s.inst / s.vol * 100))}%。` : "";
+  return `<div class="instbox"><h4>三大法人買賣超 <small>單位：張・紅色買超、綠色賣超</small></h4>
+    ${has3 ? `<p class="isum">${instSummary(s)}${vr}</p>` : `<p class="hint">分項資料還在累積，目前只有合計。</p>`}
+    <div class="tbl-wrap"><table class="itbl"><thead><tr><th></th><th class="num">今天</th><th class="num">近 5 日</th><th class="num">近 20 日</th><th>近 20 日每天</th></tr></thead><tbody>${rows}${tot}</tbody></table></div>
+    <ul class="rules"><li><b>外資</b>資金最大，連續買超通常代表中長線看好，但也常因匯率、國際資金調節而大進大出。</li><li><b>投信</b>是國內基金，買賣較有延續性，季底常有作帳行情。</li><li><b>自營商</b>多是券商自己的短線操作與權證避險，參考性最低。</li></ul>
+    <p class="hint">資料來源：${A("Yahoo 法人買賣", yahooQ(s, "institutional-trading"))}${twse ? `・${A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/t86.html")}` : `・${A("櫃買中心三大法人", "https://www.tpex.org.tw/zh-tw/mainboard/trading/major-institutional/detail/day.html")}`}（${DB.date}）</p></div>`;
+}
+function attachInst(root) {
+  root.querySelectorAll("[data-inst]").forEach(el => {
+    if (el.closest(".tpanel[hidden]")) return;
+    const s = BY[el.dataset.inst]; if (!s) return;
+    el.innerHTML = instHTML(s, null);
+    loadSeries(s.code).then(ser => { el.innerHTML = instHTML(s, ser); });
+  });
+}
+function attachAll(root) {
+  if (root.closest && root.closest(".tpanel[hidden]")) return;
+  attachChain(root); attachNews(root); attachObs(root); attachInst(root);
+}
 
 /* ---------------- rendering pieces ---------------- */
 function ladderHTML(L, etf) {
@@ -714,6 +753,15 @@ function ladderHTML(L, etf) {
     ? `<li>持有到第 ${d} 仍沒碰到停利一，就出場。</li><li>碰到停利一後，把剩下部位的停損上移到平均成本 ${avg}。</li><li>第二筆沒回檔到就不追，用第一筆的部位操作即可。</li>`
     : `<li>${etf ? "ETF 可改為每月定期定額，不必等回檔。" : "月營收年增率連兩個月轉負：減碼一半。"}</li><li>第二筆沒回檔到就不追；預計持有 ${d}，期滿重新評估。</li>`;
   return `<table class="ladder"><tbody>${h}</tbody></table><ul class="rules">${why}${rules}</ul>`;
+}
+const TABS = s => [["info", "數據與理由"], ["price", "進出場價"], ["short", "短線與籌碼"], ["inst", "三大法人"], ["chain", s.etf ? "持股與配息" : "上下游"], ["news", "最新消息"]];
+function openTab(btn) {
+  const body = btn.closest(".stabs").parentElement, k = btn.dataset.tab;
+  body.querySelectorAll(":scope > .stabs [data-tab]").forEach(b => b.setAttribute("aria-selected", b === btn));
+  body.querySelectorAll(":scope > .tpanel").forEach(p => {
+    const on = p.dataset.panel === k; p.hidden = !on;
+    if (on && !p.dataset.loaded) { p.dataset.loaded = "1"; attachAll(p); }
+  });
 }
 function stockBody(s, opts = {}) {
   const price = opts.price || s.price, L = levels(s, price), h = modeKey(), sc = scoreOf(s), x = opts.row;
@@ -731,14 +779,19 @@ function stockBody(s, opts = {}) {
   const src = [[`FinLab ${s.code}`, FINLAB(s.code)], [`Goodinfo ${s.code}`, GOODINFO(s.code)], ...(n.src || [])];
   return `<div class="tags">${tags.join("")}</div>${buy}
    ${opts.price && opts.price !== s.price ? `<p class="hint">價位用你輸入的現價 ${fmt(opts.price)} 計算；其他數據是 ${DB.date} 的資料。</p>` : ""}
-   <div class="metrics">${metricsOf(s).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
-   ${finHTML(s)}
-   <div class="cols"><div><h4>看好的理由</h4><ul>${(why.length ? why : ["目前基本面數據沒有明顯優勢，請參考下方短線動態"]).map(t => `<li>${esc(t)}</li>`).join("")}</ul><h4 style="margin-top:10px">主要風險</h4><ul>${bear.map(t => `<li>${esc(t)}</li>`).join("")}</ul>${n.adjNote ? `<p class="hint">${esc(n.adjNote)}</p>` : ""}</div>
-   <div><h4>${h === "short" ? "波段" : "長期"}進出場參考價（持有 ${daysText(days())}）</h4>${ladderHTML(L, s.etf)}</div></div>
-   ${n.event ? `<div class="event">${esc(n.event)}</div>` : ""}
-   <div data-obs="${s.code}" data-price="${price}"></div>
-   ${s.etf ? etfHTML(s) : `<div data-chain="${s.code}"></div>${holdersHTML(s)}`}
-   <div data-news="${s.code}"></div>
+   <div class="stabs" role="tablist" aria-label="${esc(s.name)} 分析內容">${TABS(s).map(([k, t], i) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${i === 0}">${t}</button>`).join("")}</div>
+   <div class="tpanel" data-panel="info" role="tabpanel">
+     <div class="metrics">${metricsOf(s).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
+     ${finHTML(s)}
+     <div class="cols"><div><h4>看好的理由</h4><ul>${(why.length ? why : ["目前基本面數據沒有明顯優勢，請看「短線與籌碼」分頁"]).map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>
+     <div><h4>主要風險</h4><ul>${bear.map(t => `<li>${esc(t)}</li>`).join("")}</ul>${n.adjNote ? `<p class="hint">${esc(n.adjNote)}</p>` : ""}</div></div>
+     ${n.event ? `<div class="event">${esc(n.event)}</div>` : ""}
+   </div>
+   <div class="tpanel" data-panel="price" role="tabpanel" hidden><h4>${h === "short" ? "波段" : "長期"}進出場參考價（持有 ${daysText(days())}）</h4>${ladderHTML(L, s.etf)}</div>
+   <div class="tpanel" data-panel="short" role="tabpanel" hidden><div data-obs="${s.code}" data-price="${price}"></div></div>
+   <div class="tpanel" data-panel="inst" role="tabpanel" hidden><div data-inst="${s.code}"></div></div>
+   <div class="tpanel" data-panel="chain" role="tabpanel" hidden>${s.etf ? etfHTML(s) : `<div data-chain="${s.code}"></div>${holdersHTML(s)}`}</div>
+   <div class="tpanel" data-panel="news" role="tabpanel" hidden><div data-news="${s.code}"></div></div>
    <div class="src">資料來源：證交所／櫃買中心 OpenAPI（${DB.date}）、${src.map(([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${esc(t)}</a>`).join("、")}</div>`;
 }
 function stockRow(s, rows) {
@@ -893,7 +946,8 @@ function goTo(code) {
 /* ---------------- 明日走向 ---------------- */
 let FC = null, fcLoading = null;
 function loadFC(bust) { if (!fcLoading || bust) fcLoading = dataFetch("forecast.json", bust).catch(() => null).then(j => FC = j); return fcLoading; }
-const fcLabel = p => p >= 56 ? ["偏多", "up"] : p <= 44 ? ["偏空", "down"] : ["震盪", "mid"];
+const fcConf = p => { const d = Math.abs(p - 50); return d >= 12 ? "高" : d >= 6 ? "中" : "低"; };
+const fcLabel = p => p > 50 ? ["偏多", "up"] : ["偏空", "down"];
 const fcRow = c => { const r = FC?.stocks?.[c]; return r ? Object.fromEntries(FC.fields.map((f, i) => [f, r[i]])) : null; };
 const WEEK = "日一二三四五六";
 const dayTxt = iso => iso ? `${+iso.slice(5, 7)}/${+iso.slice(8)}（週${WEEK[new Date(iso + "T00:00:00+08:00").getDay()]}）` : "";
@@ -905,6 +959,30 @@ function sparkSVG(series, w = 220, h = 56) {
   const up = v[v.length - 1] >= v[0];
   return `<svg viewBox="0 0 ${w} ${h}" class="spark" aria-hidden="true"><path d="${v.map((y, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(y).toFixed(1)).join("")}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="1.6"/></svg>`;
 }
+const yiTxt = v => `<b class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "+" : ""}${fmt(v)} 億</b>`;
+function instMarketTxt(M) {
+  const a = M.instAmt, L = M.instLots || {};
+  let t;
+  if (a) {
+    const xs = [["外資", a.fi], ["投信", a.it], ["自營商", a.dl]];
+    const buy = xs.filter(x => x[1] > 0).sort((p, q) => q[1] - p[1]), sell = xs.filter(x => x[1] < 0).sort((p, q) => p[1] - q[1]);
+    t = `上市買賣金額：外資 ${yiTxt(a.fi)}、投信 ${yiTxt(a.it)}、自營商 ${yiTxt(a.dl)}（合計 ${yiTxt(a.t)}）。${buy.length ? `買最多是${buy[0][0]}` : "沒有法人買超"}，${sell.length ? `賣最多是${sell[0][0]}` : "沒有法人賣超"}。`;
+  } else if (L.fi != null) t = `全部個股合計：外資 ${signLots(L.fi)}、投信 ${signLots(L.it)}、自營商 ${signLots(L.dl)} 張。`;
+  else t = `全部個股合計${M.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(M.inst))} 張。`;
+  return t + A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/bfi82u.html");
+}
+/* 結論：把加權後影響最大的因子寫成一段話 */
+function conclusion(prob, items, subject) {
+  const [lb] = fcLabel(prob), conf = fcConf(prob);
+  const eff = items.map(([n, w, v, t, s]) => [n, w * (v || 0), s]).filter(x => Math.abs(x[1]) >= 0.005);
+  const pro = eff.filter(x => (x[1] > 0) === (prob > 50)).sort((p, q) => Math.abs(q[1]) - Math.abs(p[1])).slice(0, 2);
+  const con = eff.filter(x => (x[1] > 0) !== (prob > 50)).sort((p, q) => Math.abs(q[1]) - Math.abs(p[1])).slice(0, 1);
+  const why = pro.map(x => x[2] || x[0]).join("、");
+  const tip = conf === "高" ? (prob > 50 ? "訊號一致偏多，可以照計畫在第一筆價位布局，但仍要設停損。" : "訊號一致偏空，先觀望或等跌到支撐再說，持有者留意停損。")
+    : conf === "中" ? (prob > 50 ? "略偏多但不是一面倒，適合分批、不要追高。" : "略偏空，新買進可以等回檔，不急著進場。")
+    : "多空訊號接近，方向判斷信心低，建議以既定計畫為主、不要因為這個預估重押。";
+  return `<p class="concl ${prob > 50 ? "up" : "down"}"><b>結論：${subject}${lb}（信心${conf}，上漲機率 ${prob}%）。</b>${why ? `主要依據是${why}` : ""}${con.length ? `；不過${con[0][2] || con[0][0]}抵銷了一部分` : ""}。${tip}</p>`;
+}
 function fcMarketHTML() {
   const M = FC.market, [lb, cl] = fcLabel(M.prob), tx = M.taiex || {}, f = M.f || {};
   const usTxt = (M.us || []).map(([sym, nm, d, c, p]) => `${A(esc(nm), yfq(sym))} <b class="${p > 0 ? "up" : p < 0 ? "down" : ""}">${pct(p)}</b><small>${d.slice(5)}</small>`).join("、");
@@ -913,12 +991,15 @@ function fcMarketHTML() {
     ["美股與費半", .35, f.us, `${FC.basis === "pre" ? "昨晚美股收盤" : "美股期貨盤前"}：${usTxt || "暫時抓不到"}`],
     ["加權指數線形", .20, f.trend, tx.close ? `收盤 ${fmt(tx.close)}（${tx.chg >= 0 ? "+" : ""}${fmt(tx.chg)} 點），${tx.close > tx.ma5 ? "站上" : "跌破"} 5 日均線 ${fmt(Math.round(tx.ma5))}、${tx.close > tx.ma20 ? "站上" : "跌破"} 20 日均線 ${fmt(Math.round(tx.ma20))}；近 5 日 ${pct(tx.ch5)}，RSI ${tx.rsi}${tx.rsi >= 75 ? "（過熱）" : tx.rsi <= 30 ? "（超賣）" : ""}。${A("證交所大盤資料", "https://www.twse.com.tw/zh/trading/historical/fmtqik.html")}` : "暫無資料"],
     ["漲跌家數", .15, f.breadth, `今天上漲 ${M.up} 家、下跌 ${M.down} 家（不含 ETF）。`],
-    ["三大法人合計", .15, f.flow, `全部個股合計${M.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(M.inst))} 張。${A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/t86.html")}`],
+    ["三大法人", .15, f.flow, instMarketTxt(M)],
     ["市場新聞", .15, f.news, `近 36 小時 ${(M.news || []).length} 則：偏正面 ${pos}、偏負面 ${neg}。`]];
+  const ph = {"美股與費半": f.us >= 0 ? "美股走強" : "美股走弱", "加權指數線形": f.trend >= 0 ? "大盤線形偏多" : "大盤線形轉弱", "漲跌家數": f.breadth >= 0 ? "上漲家數較多" : "下跌家數較多",
+    "三大法人": f.flow >= 0 ? `法人買超${M.instAmt ? `（外資 ${M.instAmt.fi > 0 ? "+" : ""}${M.instAmt.fi} 億）` : ""}` : `法人賣超${M.instAmt ? `（外資 ${M.instAmt.fi > 0 ? "+" : ""}${M.instAmt.fi} 億）` : ""}`, "市場新聞": f.news >= 0 ? "新聞偏正面" : "新聞偏負面"};
+  rows.forEach(r => r.push(ph[r[0]]));
   const newsList = (M.news || []).slice(0, 6).map(([t, src, d, u, tn]) => `<li><span class="nd">${d.slice(5)}</span>${A(esc(t), u)}<span class="ns">${esc(src)}</span>${TONE[tn] || ""}</li>`).join("");
   return `<div class="fcm">
-    <div class="fcm-gauge ${cl}"><span class="lbl">大盤 ${dayTxt(FC.target)}</span><strong>${M.prob}<small>%</small></strong><span class="fcl">上漲機率・${lb}</span>${tx.series ? sparkSVG(tx.series) : ""}<span class="hint" style="margin:0">${FC.basis === "pre" ? "開盤前版本：已含昨晚美股收盤與夜間新聞" : "收盤後版本：明早 08:00 前會用美股收盤再更新"}・產生於 ${esc((FC.generated || "").replace("T", " ").slice(5, 16))}</span></div>
-    <div class="fcm-f"><table class="ftbl"><tbody>${rows.map(([n, w, v, t]) => `<tr><th>${n}<small>權重 ${Math.round(w * 100)}%</small></th><td>${fbar(v || 0)}</td><td>${t}</td></tr>`).join("")}</tbody></table>
+    <div class="fcm-gauge ${cl}"><span class="lbl">大盤 ${dayTxt(FC.target)}</span><strong>${M.prob}<small>%</small></strong><span class="fcl">上漲機率・${lb}（信心${fcConf(M.prob)}）</span>${tx.series ? sparkSVG(tx.series) : ""}<span class="hint" style="margin:0">${FC.basis === "pre" ? "開盤前版本：已含昨晚美股收盤與夜間新聞" : "收盤後版本：明早 08:00 前會用美股收盤再更新"}・產生於 ${esc((FC.generated || "").replace("T", " ").slice(5, 16))}</span></div>
+    <div class="fcm-f">${conclusion(M.prob, rows, `明天（${dayTxt(FC.target)}）大盤`)}<table class="ftbl"><tbody>${rows.map(([n, w, v, t]) => `<tr><th>${n}<small>權重 ${Math.round(w * 100)}%</small></th><td>${fbar(v || 0)}</td><td>${t}</td></tr>`).join("")}</tbody></table>
     ${newsList ? `<details class="fcnews"><summary>看市場新聞標題</summary><ul class="newslist">${newsList}</ul></details>` : ""}</div></div>`;
 }
 function fcExplain(s, r) {
@@ -933,7 +1014,7 @@ function fcExplain(s, r) {
   if (s.rsi != null) t.push(`RSI ${s.rsi}${s.rsi > 72 ? "（偏熱，容易拉回）" : s.rsi < 30 ? "（超賣，可能反彈）" : ""}`);
   if (Math.abs(pc) >= 9) t.push(pc > 0 ? "今天漲停或接近漲停，隔天常有慣性" : "今天跌停或接近跌停");
   out.push(["個股線形", .25, r.tech, t.join("，") + `。${A("Yahoo 技術分析", yahooQ(s, "technical-analysis"))}`]);
-  out.push(["法人動向", .20, r.flow, s.inst != null ? `三大法人今天${s.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(s.inst))} 張${s.vol ? `（占成交量 ${Math.abs(Math.round(s.inst / s.vol * 100))}%）` : ""}，近 5 日 ${lots(s.f5)}。${A("Yahoo 法人買賣", yahooQ(s, "institutional-trading"))}` : "沒有法人資料"]);
+  out.push(["法人動向", .20, r.flow, s.inst != null ? `今天外資 ${signLots(s.fi)}、投信 ${signLots(s.it)}、自營商 ${signLots(s.dl)} 張（合計 ${signLots(s.inst)}${s.vol ? `，占成交量 ${Math.abs(Math.round(s.inst / s.vol * 100))}%` : ""}）。${instSummary(s)}${A("Yahoo 法人買賣", yahooQ(s, "institutional-trading"))}` : "沒有法人資料"]);
   const c = [];
   if (s.ls != null) c.push(`借券賣出 ${fmt(s.ls)} 張${s.ls20 ? `（20 日平均 ${fmt(s.ls20)}）` : ""}`);
   if (s.lbCh5) c.push(`借券餘額 5 日 ${s.lbCh5 > 0 ? "+" : ""}${fmt(s.lbCh5)} 張`);
@@ -942,13 +1023,17 @@ function fcExplain(s, r) {
   out.push(["籌碼賣壓", .10, r.chip, (c.length ? c.join("、") + (r.chip < 0 ? "，有放空或籌碼轉亂的跡象" : "，沒有明顯異常") : "沒有融資券或借券資料") + `。${A("Yahoo 資券變化", yahooQ(s, "margin"))}・${A("Yahoo 主力進出", yahooQ(s, "broker-trading"))}`]);
   const its = (NEWS?.news?.[s.code] || []).filter(x => x[2] >= isoAgo(2));
   out.push(["新聞", .10, r.news, its.length ? `近兩天 ${its.length} 則（偏正面 ${r.npos}、偏負面 ${r.nneg}）：${its.slice(0, 3).map(x => A(esc(x[0]), x[3])).join("；")}` : `近兩天沒有相關新聞。${A("Google 新聞", googleNews(s))}`]);
+  const top3 = INSTN.filter(([k]) => s[k] != null).sort((p, q) => Math.abs(s[q[0]]) - Math.abs(s[p[0]]))[0];
+  const ph = {"大盤連動": r.mkt >= 0 ? "大盤偏多帶動" : "大盤偏空拖累", "個股線形": r.tech >= 0 ? "線形偏多" : "線形轉弱", "法人動向": top3 ? `${top3[1]}${s[top3[0]] >= 0 ? "買超" : "賣超"}` : (r.flow >= 0 ? "法人買超" : "法人賣超"), "籌碼賣壓": "借券或融資券有賣壓", "新聞": r.news >= 0 ? "新聞偏正面" : "新聞偏負面"};
+  out.forEach(x => x.push(ph[x[0]]));
   return out;
 }
 function fcDetailHTML(s) {
   const r = fcRow(s.code);
   if (!r) return `<div class="fcd"><p class="status">${esc(s.code)} ${esc(s.name)} 沒有明日走向：${s.et === "槓桿反向" ? "槓桿反向 ETF 不計算。" : "當日成交量不到 200 張，資料不足以判斷短線方向。"}</p></div>`;
   const [lb, cl] = fcLabel(r.prob);
-  return `<div class="fcd"><div class="fcd-h"><div><code>${s.code}</code> <b>${esc(s.name)}</b> <span class="s-price">${fmt(s.price)}</span> <span class="${s.chg > 0 ? "up" : s.chg < 0 ? "down" : ""}">${s.chg > 0 ? "+" : ""}${fmt(s.chg)}</span></div><div class="fcd-p ${cl}"><strong>${r.prob}%</strong><span>${dayTxt(FC.target)} 上漲機率・${lb}</span></div></div>
+  return `<div class="fcd"><div class="fcd-h"><div><code>${s.code}</code> <b>${esc(s.name)}</b> <span class="s-price">${fmt(s.price)}</span> <span class="${s.chg > 0 ? "up" : s.chg < 0 ? "down" : ""}">${s.chg > 0 ? "+" : ""}${fmt(s.chg)}</span></div><div class="fcd-p ${cl}"><strong>${r.prob}%</strong><span>${dayTxt(FC.target)} 上漲機率・${lb}（信心${fcConf(r.prob)}）</span></div></div>
+    ${conclusion(r.prob, fcExplain(s, r), `${s.name}明天`)}
     <table class="ftbl"><tbody>${fcExplain(s, r).map(([n, w, v, t]) => `<tr><th>${n}<small>權重 ${Math.round(w * 100)}%</small></th><td>${fbar(v || 0)}</td><td>${t}</td></tr>`).join("")}</tbody></table>
     <p class="hint">條狀圖往右是偏多、往左是偏空。<button type="button" class="linkbtn" data-an="${s.code}">看 ${esc(s.name)} 完整分析與進出場價 →</button></p></div>`;
 }
@@ -965,19 +1050,19 @@ function renderForecast() {
   const codes = Object.keys(FC.stocks).filter(c => BY[c] && (sc === "all" ? !BY[c].etf : sc === "etf" ? BY[c].etf : sc === "watch" ? mine.has(c) : isRec(BY[c]) && !BY[c].etf));
   const rows = codes.map(c => [BY[c], fcRow(c)]).sort((x, y) => y[1].prob - x[1].prob);
   const item = ([s, r]) => { const [lb, cl] = fcLabel(r.prob); const top = fcExplain(s, r).slice(0, 5).sort((x, y) => Math.abs(y[2] * y[1]) - Math.abs(x[2] * x[1]))[0];
-    return `<button type="button" class="fcrow" data-fc="${s.code}"><span class="fr-n"><code>${s.code}</code>${esc(s.name)}</span><span class="fr-p">${fmt(s.price)}</span><span class="fr-b ${cl}"><i style="width:${r.prob}%"></i></span><span class="fr-v ${cl}">${r.prob}%</span><span class="fr-w">${esc(top[0])}${top[2] >= 0 ? "偏多" : "偏空"}</span></button>`; };
-  const bull = rows.filter(x => x[1].prob >= 56).slice(0, 15), bear = rows.filter(x => x[1].prob <= 44).reverse().slice(0, 15);
+    return `<button type="button" class="fcrow" data-fc="${s.code}"><span class="fr-n"><code>${s.code}</code>${esc(s.name)}</span><span class="fr-p">${fmt(s.price)}</span><span class="fr-b ${cl}"><i style="width:${r.prob}%"></i></span><span class="fr-v ${cl}">${r.prob}%</span><span class="fr-w">信心${fcConf(r.prob)}・${esc(top[4] || top[0])}</span></button>`; };
+  const bull = rows.filter(x => x[1].prob > 50).slice(0, 15), bear = rows.filter(x => x[1].prob < 50).reverse().slice(0, 15);
   const scName = {rec: "推薦清單", all: "全部個股", watch: "自選股與持股", etf: "ETF"}[sc];
   $("fcLists").innerHTML = sc === "watch" && !mine.size ? `<p class="status">還沒有自選股或持股。到推薦清單點 ☆，或在「我的持股」加入。</p>`
-    : `<p class="hint">${scName}中有明日走向的共 ${rows.length} 檔：偏多 ${rows.filter(x => x[1].prob >= 56).length}、震盪 ${rows.filter(x => x[1].prob > 44 && x[1].prob < 56).length}、偏空 ${rows.filter(x => x[1].prob <= 44).length}。點任一檔看原因。</p>
+    : `<p class="hint">${scName}中有明日走向的共 ${rows.length} 檔：偏多 ${rows.filter(x => x[1].prob > 50).length}（信心高 ${rows.filter(x => x[1].prob >= 62).length}）、偏空 ${rows.filter(x => x[1].prob < 50).length}（信心高 ${rows.filter(x => x[1].prob <= 38).length}）。點任一檔看結論與原因。</p>
       <div class="fclists"><section><h3 class="minor up">最偏多</h3>${bull.map(item).join("") || `<p class="status">沒有偏多的標的。</p>`}</section><section><h3 class="minor down">最偏空</h3>${bear.map(item).join("") || `<p class="status">沒有偏空的標的。</p>`}</section></div>
       ${sc === "watch" ? `<section><h3 class="minor">全部</h3>${rows.map(item).join("")}</section>` : ""}`;
   const T = FC.track || {}, rate = x => x && x[1] ? `${x[0]}/${x[1]}（${Math.round(x[0] / x[1] * 100)}%）` : "還沒有足夠紀錄";
   const rec = (T.recent || []).filter(x => x[2] != null || x[4]);
   $("fcTrack").innerHTML = `<div class="track"><h3 class="minor">過去命中率</h3>
-    <p>大盤方向：<b>${rate(T.mkt)}</b>・個股（只算判斷偏多或偏空的）：<b>${rate(T.stk)}</b>・信心較高（≥62% 或 ≤38%）：<b>${rate(T.strong)}</b></p>
+    <p>大盤方向：<b>${rate(T.mkt)}</b>・個股：<b>${rate(T.stk)}</b>・信心較高（≥60% 或 ≤40%）：<b>${rate(T.strong)}</b></p>
     ${rec.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th class="num">大盤預估</th><th class="num">大盤實際</th><th class="num">個股命中</th></tr></thead><tbody>${rec.slice().reverse().map(([d, mp, ma, h, n]) => `<tr><td>${dayTxt(d)}</td><td class="num">${mp ?? "—"}%</td><td class="num ${ma > 0 ? "up" : ma < 0 ? "down" : ""}">${ma == null ? "—" : pct(ma)}</td><td class="num">${n ? `${h}/${n}（${Math.round(h / n * 100)}%）` : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="hint">命中率從 ${dayTxt(FC.target)} 開始記錄，累積幾個交易日後這裡會顯示每天的對錯。</p>`}
-    <p class="hint">怎麼算：大盤看美股（35%）、加權指數線形（20%）、漲跌家數（15%）、法人合計（15%）、新聞（15%）。個股看大盤連動（35%）、個股線形（25%）、法人（20%）、借券與融資券賣壓（10%）、近兩天新聞（10%）。機率限制在 25%–75%，因為短線本來就很難預測；50% 附近代表沒有明顯方向。這只是規則計分，不是保證，請搭配自己的判斷。</p></div>`;
+    <p class="hint">怎麼算：大盤看美股（35%）、加權指數線形（20%）、漲跌家數（15%）、法人合計（15%）、新聞（15%）。個股看大盤連動（35%）、個股線形（25%）、法人（20%）、借券與融資券賣壓（10%）、近兩天新聞（10%）。每一檔都會給偏多或偏空，並依離 50% 多遠標示信心（差 12 以上為高、6 以上為中、其餘為低）；信心低代表多空訊號接近，參考價值有限。這只是規則計分，不是保證，請搭配自己的判斷。</p></div>`;
 }
 
 /* ---------------- ETF 專區 ---------------- */
@@ -1150,6 +1235,7 @@ function wire() {
   $("indChips").addEventListener("click", e => { const b = e.target.closest("button[data-chip]"); if (b) { state.chip = b.dataset.chip; reset(); } });
   ["pagerTop", "pagerBot"].forEach(id => $(id).addEventListener("click", e => { const b = e.target.closest("button[data-p]"); if (b && !b.disabled) { state.page = +b.dataset.p; render(); $("listTitle").scrollIntoView({behavior: "smooth", block: "start"}); } }));
   document.addEventListener("click", async e => {
+    const tb = e.target.closest(".stabs [data-tab]"); if (tb) { openTab(tb); return; }
     const op = e.target.closest("[data-open]"); if (op) { const el = $(op.dataset.open); if (el) { el.open = true; el.scrollIntoView({behavior: "smooth", block: "center"}); } return; }
     const an = e.target.closest("[data-an]"); if (an) { e.preventDefault(); show("analyze"); $("aCode").value = an.dataset.an; $("aPrice").value = ""; analyze(an.dataset.an, 0); return; }
     const go = e.target.closest("[data-go]"); if (go) { e.preventDefault(); goTo(go.dataset.go); return; }

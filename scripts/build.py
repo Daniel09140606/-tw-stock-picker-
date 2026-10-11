@@ -31,6 +31,7 @@ FIELDS = ["code", "name", "mkt", "ind", "themes", "price", "chg", "vol", "pe", "
           "revCur", "revPrevM", "revLY", "revMoM", "revCumCur", "revCumLY",
           "plYear", "plQ", "plRev", "plGP", "plOP", "plPretax", "plNI", "plEPS", "rh",
           "et", "ma5", "ma20", "ma60", "lo20", "lo60", "hi20", "hi60", "atr", "sd", "rsi", "inst",
+          "fi", "it", "dl", "fi5", "it5", "dl5", "fi20", "it20", "dl20",
           "mb", "mbCh5", "sb", "sbCh5", "ls", "ls20", "lb", "lbCh5"]
 CHIPS = DATA / "chips"       # 每日融資融券、借券賣出
 SERIES_DAYS = 120            # 網站線形圖用的天數
@@ -39,7 +40,10 @@ REV_DIR = DATA / "revenue"   # 每月營收快照，累積成近 12 個月走勢
 
 # ---------------------------------------------------------------- history
 def save_history(date: str, quotes: dict, inst: dict) -> None:
-    day = {c: [q["price"], inst.get(c)] for c, q in quotes.items()}
+    day = {}
+    for c, q in quotes.items():
+        i = inst.get(c)
+        day[c] = [q["price"], i["t"], i.get("fi"), i.get("it"), i.get("dl")] if isinstance(i, dict) else [q["price"], i]
     write_json(HISTORY / f"{date}.json", day)
     files = sorted(HISTORY.glob("*.json"))
     for old in files[:-KEEP_DAYS]:
@@ -159,6 +163,11 @@ def series_stats(hist: list[tuple[str, dict]], code: str) -> dict:
         st["f20"] = int(sum(flows[-20:]))
     last = hist[-1][1].get(code) if hist else None
     st["inst"] = last[1] if last and len(last) > 1 else None
+    for j, key in ((2, "fi"), (3, "it"), (4, "dl")):   # 外資、投信、自營商分開
+        st[key] = last[j] if last and len(last) > j else None
+        v = [d[code][j] for _, d in hist if code in d and len(d[code]) > j and d[code][j] is not None]
+        st[key + "5"] = int(sum(v[-5:])) if len(v) >= 5 else None
+        st[key + "20"] = int(sum(v[-20:])) if len(v) >= 20 else None
     st.update(tech_stats(closes))
     return st
 
@@ -170,9 +179,11 @@ def write_series(hist: list[tuple[str, dict]], chips: list[tuple[str, dict]], co
     cd = [d for d, _ in chips[-20:]]
     shards: dict[str, dict] = {}
     for c in codes:
-        sh = shards.setdefault(c[0], {"dates": dates, "cdates": cd, "p": {}, "f": {}, "m": {}, "s": {}, "l": {}, "b": {}})
+        sh = shards.setdefault(c[0], {"dates": dates, "cdates": cd, "p": {}, "f": {}, "fi": {}, "it": {}, "dl": {}, "m": {}, "s": {}, "l": {}, "b": {}})
         sh["p"][c] = [d[c][0] if c in d else None for _, d in h]
         sh["f"][c] = [(d[c][1] if c in d and len(d[c]) > 1 else None) for _, d in h[-20:]]
+        for j, key in ((2, "fi"), (3, "it"), (4, "dl")):
+            sh[key][c] = [(d[c][j] if c in d and len(d[c]) > j else None) for _, d in h[-20:]]
         if any(c in d for _, d in chips[-20:]):
             for key, k in (("m", "mb"), ("s", "sb"), ("l", "ls"), ("b", "lb")):
                 sh[key][c] = [d.get(c, {}).get(k) for _, d in chips[-20:]]
