@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import DATA, HISTORY, SESSION, SITE_DATA, TPE, get_json, read_json, write_json  # noqa: E402
+from common import DATA, HISTORY, SESSION, SITE_DATA, TPE, get_json, read_json, roc_to_iso, write_json  # noqa: E402
 from news import GOOD, SKIP, tone  # noqa: E402
 from sources import fetch_taiex_month  # noqa: E402
 
@@ -35,11 +35,36 @@ def clamp(x: float, a: float = -1.0, b: float = 1.0) -> float:
     return max(a, min(b, x))
 
 
+HOLIDAYS: set[str] = set()
+
+
+def load_holidays(log: dict) -> None:
+    """證交所休市日（國定假日、補假），避免把預測日排在休市日。"""
+    try:
+        rows = get_json("https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule")
+        for r in rows:
+            name, d = str(r.get("Name") or r.get("名稱") or ""), roc_to_iso(r.get("Date") or r.get("日期"))
+            if d and not any(k in name for k in ("開始交易", "最後交易")):
+                HOLIDAYS.add(d)
+        log["holidays"] = len(HOLIDAYS)
+    except Exception as e:  # noqa: BLE001
+        log["holidays"] = str(e)[:120]
+
+
 def next_weekday(iso: str) -> str:
     d = dt.date.fromisoformat(iso) + dt.timedelta(days=1)
-    while d.weekday() >= 5:
+    while d.weekday() >= 5 or d.isoformat() in HOLIDAYS:
         d += dt.timedelta(days=1)
     return d.isoformat()
+
+
+def target_day(data_date: str, now: dt.datetime) -> str:
+    """下一個還沒收盤的交易日。"""
+    t = next_weekday(data_date)
+    today = now.date().isoformat()
+    while t < today or (t == today and now.hour >= 14):
+        t = next_weekday(t)
+    return t
 
 
 # ---------------------------------------------------------------- 大盤資料
@@ -171,8 +196,9 @@ def main() -> int:
     news = read_json(SITE_DATA / "news.json", {}) or {}
     now = dt.datetime.now(TPE)
     basis = "pre" if now.hour < 12 else "close"
-    target = next_weekday(db["date"])
     log: dict = {}
+    load_holidays(log)
+    target = target_day(db["date"], now)
     taiex = update_market(log)
 
     # 大盤因子

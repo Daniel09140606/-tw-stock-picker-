@@ -39,19 +39,42 @@ const scoreOf = s => modeKey() === "short" ? s.sS : s.sL;
 function daysText(d) { if (d >= 365 && d % 365 === 0) return d / 365 + " 年"; if (d >= 30 && d % 30 === 0) return d / 30 + " 個月"; if (d % 7 === 0 && d >= 7) return d / 7 + " 週"; return d + " 天"; }
 function tick(p, etf) { if (etf) return p < 50 ? .01 : .05; return p < 10 ? .01 : p < 50 ? .05 : p < 100 ? .1 : p < 500 ? .5 : p < 1000 ? 1 : 5; }
 function rnd(p, etf, dir) { const t = tick(p, etf); const f = dir < 0 ? Math.floor : dir > 0 ? Math.ceil : Math.round; return +(f(p / t + 1e-9 * (dir < 0 ? 1 : -1)) * t).toFixed(2); }
-function levels(price, vol, etf) {
-  const T = years(), m = Math.min(.45, Math.max(.03, SIG[vol] * Math.sqrt(T)));
-  if (modeKey() === "short") {
-    const ms = Math.min(m, .15), e1 = rnd(price * (1 - .25 * ms), etf, -1), e2 = rnd(price * (1 - .6 * ms), etf, -1), avg = (e1 + e2) / 2;
-    return {mode: "short", m: ms, entries: [["第一筆（50%）", e1], ["第二筆（50%）", e2]], avg, stop: rnd(avg * (1 - ms), etf, -1), tp1: rnd(avg * (1 + 1.5 * ms), etf, 1), tp2: rnd(avg * (1 + 2.5 * ms), etf, 1)};
-  }
-  const ml = Math.min(m, .40), e1 = rnd(price, etf, 0), e2 = rnd(price * (1 - .5 * ml), etf, -1), e3 = rnd(price * (1 - .9 * ml), etf, -1), avg = (e1 + e2 + e3) / 3;
-  return {mode: "long", m: ml, entries: [["第一筆 現價（1/3）", e1], ["第二筆 回檔（1/3）", e2], ["第三筆 深度回檔（1/3）", e3]], avg, stop: rnd(avg * (1 - Math.min(.8 * ml + .05, .35)), etf, -1), review: rnd(avg * (1 + Math.max(.2, ml)), etf, 1)};
+/* 進出場價：依這檔的實際波動與近期支撐計算（2026/10 改版，不再把第二、三筆壓到很深的回檔）。
+   第一筆＝現價；第二筆＝現價下方最近的支撐（20 日均線、近 20 日低點，長期再加 60 日均線），找不到就用 1.2 個平均日波動；
+   停損＝波段看近 20 日低點、長期看近 60 日低點，再往下留 0.3 個日波動；距離限制在 1.5 個日波動～15%（波段）或 25%（長期）。
+   停利＝平均成本 ×（1＋0.6 個持有期間的預期波動；停利二 1.2 個），預期波動＝日報酬標準差 × √持有天數。 */
+function levels(s, price) {
+  price = price || s.price;
+  const etf = s.etf, short = modeKey() === "short", d = days();
+  const sdd = (s.sd || SIG[s.volc] / Math.sqrt(250) * 100) / 100;      // 日報酬標準差
+  const atr = s.atr && s.price ? s.atr * price / s.price : price * sdd * 0.8;  // 平均每日波動（元）
+  const mv = Math.min(short ? .3 : .45, Math.max(.03, sdd * Math.sqrt(Math.max(5, d))));
+  const e1 = rnd(price, etf, 0);
+  const floor = price - Math.min(price * .12, Math.max(2.5 * atr, price * .04));
+  const sup = [[s.ma20, "20 日均線"], [s.lo20, "近 20 日低點"], ...(short ? [] : [[s.ma60, "60 日均線"]])]
+    .filter(([v]) => v && v < price * .99 && v >= floor).sort((x, y) => y[0] - x[0]);
+  let e2, e2why;
+  if (sup.length) { e2 = rnd(sup[0][0], etf, -1); e2why = `${sup[0][1]} ${fmt(+sup[0][0].toFixed(2))} 附近`; }
+  else { e2 = rnd(Math.min(price - 1.2 * atr, price * .98), etf, -1); e2why = `現價下方約 1.2 個平均日波動（附近沒有明顯支撐）`; }
+  const avg = (e1 + e2) / 2;
+  const ref = short ? s.lo20 : (s.lo60 || s.lo20), maxD = short ? .15 : .25, minD = Math.max(1.5 * atr / avg, .03);
+  let stop, stopWhy;
+  if (ref && ref < e2) { stop = ref - .3 * atr; stopWhy = `跌破${short ? "近 20 日" : "近 60 日"}低點 ${fmt(ref)}`; }
+  else { stop = e2 - 2 * atr; stopWhy = "第二筆下方 2 個平均日波動"; }
+  if ((avg - stop) / avg > maxD) { stop = avg * (1 - maxD); stopWhy = `${short ? "近 20 日" : "近 60 日"}低點${ref ? " " + fmt(ref) : ""}離現價太遠，改用平均成本下方最大虧損 ${maxD * 100}%`; }
+  if ((avg - stop) / avg < minD) { stop = avg * (1 - minD); stopWhy = `平均成本下方 ${Math.round(minD * 1000) / 10}%（至少 1.5 個平均日波動，避免正常震盪就被洗出場）`; }
+  stop = rnd(stop, etf, -1);
+  const L = {mode: short ? "short" : "long", m: mv, atr, entries: [["第一筆 現價（50%）", e1], [`第二筆 回檔（50%）`, e2]], e2why, avg, stop, stopWhy};
+  if (short) { L.tp1 = rnd(avg * (1 + Math.max(.02, .6 * mv)), etf, 1); L.tp2 = rnd(avg * (1 + Math.max(.035, 1.2 * mv)), etf, 1); }
+  else L.review = rnd(avg * (1 + Math.max(.12, .6 * mv)), etf, 1);
+  const hi = short ? s.hi20 : s.hi60;
+  if (hi && hi > price * 1.01 && hi < (L.tp1 || L.review)) L.resist = hi;
+  return L;
 }
-function exitFor(cost, vol, etf) {
-  const L = levels(cost, vol, etf);
-  if (L.mode === "short") return {stop: rnd(cost * (1 - L.m), etf, -1), tp: rnd(cost * (1 + 1.5 * L.m), etf, 1), tpName: "停利一"};
-  return {stop: rnd(cost * (1 - Math.min(.8 * L.m + .05, .35)), etf, -1), tp: rnd(cost * (1 + Math.max(.2, L.m)), etf, 1), tpName: "重新評估價"};
+function exitFor(s, cost) {
+  const L = levels(s, s.price);
+  if (L.mode === "short") return {stop: L.stop, tp: rnd(cost * (1 + Math.max(.02, .6 * L.m)), s.etf, 1), tpName: "停利一"};
+  return {stop: L.stop, tp: rnd(cost * (1 + Math.max(.12, .6 * L.m)), s.etf, 1), tpName: "重新評估價"};
 }
 function sharesText(n) { const l = Math.floor(n / 1000), o = n % 1000; return ((l ? l + " 張" : "") + (l && o ? " ＋ " : "") + (o ? o + " 股" : "")) || "0 股"; }
 
@@ -148,7 +171,7 @@ function stampHTML() {
 async function doRefresh(btn) {
   const msg = $("refreshMsg"), before = curDate("上市") + "|" + DB.date;
   btn.disabled = true; btn.textContent = "刷新中…"; msg.textContent = "";
-  try { await loadData(true); NEWS = null; newsLoading = null; } catch (e) { msg.textContent = "讀取每日資料失敗：" + e.message; }
+  try { await loadData(true); NEWS = null; newsLoading = null; FC = null; fcLoading = null; } catch (e) { msg.textContent = "讀取每日資料失敗：" + e.message; }
   const live = await refreshLive(true);
   redrawAll();
   if (lastAnalysis) analyze($("aCode").value, +$("aPrice").value || 0);
@@ -164,7 +187,7 @@ async function doRefresh(btn) {
 const isLot = () => state.unit === "lot";
 const lotCost = s => s.price * 1000 * 1.001425;
 function sizeRows(ws, B, g) {
-  const rows = ws.map(({s, w}) => { const L = levels(s.price, s.volc, s.etf), unit = L.entries[0][1] * 1.001425; return {s, L, w, g, unit, shares: 0, cost: 0}; });
+  const rows = ws.map(({s, w}) => { const L = levels(s), unit = L.entries[0][1] * 1.001425; return {s, L, w, g, unit, shares: 0, cost: 0}; });
   if (!isLot()) { rows.forEach(x => { x.shares = Math.floor(B * x.w / x.unit); x.cost = Math.round(x.shares * x.unit); }); return rows; }
   let cash = B * ws.reduce((a, x) => a + x.w, 0);
   rows.forEach(x => { const lot = x.unit * 1000, n = Math.floor(B * x.w / lot); x.shares = n * 1000; x.cost = Math.round(n * lot); cash -= x.cost; });
@@ -185,7 +208,7 @@ function plan() {
   const B = state.budget, r = state.r;
   const pool = S.filter(s => isRec(s) && sizeOk(s) && (r > 1 || s.risk <= 2) && (!isLot() || lotCost(s) <= B * 0.6));
   const adj = s => scoreOf(s) + (r === 1 && s.risk === 1 ? 1 : 0) + (r === 3 && s.risk === 3 ? 1 : 0) - (r === 2 && s.risk === 3 ? 1 : 0);
-  const capOf = s => s.etf ? 1e12 : (s.cap || 0);   // 同分時 ETF 優先，其次市值大的
+  const capOf = s => s.etf ? 1e12 + (ETFI.etf[s.code]?.aum || 0) / 1e3 : (s.cap || 0);   // 同分時 ETF 優先，其次市值大的
   pool.sort((a, b) => adj(b) - adj(a) || capOf(b) - capOf(a));
   const N = state.n || (B < 20000 ? 2 : B < 60000 ? 3 : B < 200000 ? 4 : B < 600000 ? 5 : 8);
   const perGroup = N <= 5 ? 1 : 2, cap3 = {1: 0, 2: .15, 3: .30}[r];
@@ -252,7 +275,7 @@ function planGroups() {
   const B = state.budget, r = state.r, sel = state.groups.filter(g => +g.w > 0);
   const totW = sel.reduce((a, g) => a + +g.w, 0) || 1;
   const adj = s => scoreOf(s) + (r === 1 && s.risk === 1 ? 1 : 0) + (r === 3 && s.risk === 3 ? 1 : 0) - (r === 2 && s.risk === 3 ? 1 : 0);
-  const capOf = s => s.etf ? 1e12 : (s.cap || 0);
+  const capOf = s => s.etf ? 1e12 + (ETFI.etf[s.code]?.aum || 0) / 1e3 : (s.cap || 0);
   const autoN = B < 20000 ? 2 : B < 60000 ? 3 : B < 200000 ? 4 : B < 600000 ? 5 : 8;
   const N = Math.max(state.n || autoN, sel.length), cap3 = {1: 0, 2: .15, 3: .30}[r];
   const used = new Set(), out = [];
@@ -433,6 +456,8 @@ function finHTML(s) {
 }
 
 function metricsOf(s) {
+  if (s.etf) { const e = ETFI.etf[s.code] || {};
+    return [["資產規模", yiAum(e.aum)], ["殖利率（近 12 月）", e.yld != null ? e.yld + "%" : "—"], ["管理費", e.fee || "—"], ["折溢價", e.prem != null ? pct(e.prem) : "—"], ["當日成交量", s.vol != null ? fmt(s.vol) + " 張" : "—"], ["法人 5 日", lots(s.f5)], ["20 日漲跌", pct(s.ch20)], ["60 日漲跌", pct(s.ch60)]]; }
   const m = [], med = medPE(s);
   if (!s.etf) m.push(["本益比", s.pe ? `${s.pe}${med ? `（產業中位 ${med}）` : ""}` : "—"]);
   if (s.yld != null) m.push(["殖利率", s.yld + "%"]);
@@ -444,7 +469,7 @@ function metricsOf(s) {
   m.push(["法人 5 日", lots(s.f5)], ["法人 20 日", lots(s.f20)], ["20 日漲跌", pct(s.ch20)], ["60 日漲跌", pct(s.ch60)]);
   return m;
 }
-const oneLine = s => (s.note.why || autoWhy(s))[0];
+const oneLine = s => (s.note.why || (s.etf ? etfWhy(s) : autoWhy(s)))[0];
 
 /* ---------------- 最新消息（GitHub Actions 每天抓的新聞標題與重大訊息） ---------------- */
 let NEWS = null, newsLoading = null;
@@ -520,39 +545,200 @@ function attachChain(root) {
   });
 }
 
+/* ---------------- 共用連結 ---------------- */
+const yahooQ = (s, page) => `https://tw.stock.yahoo.com/quote/${s.code}.${s.mkt === "上櫃" ? "TWO" : "TW"}/${page}`;
+const A = (t, u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`;
+const isoAgo = n => { const d = new Date(Date.now() + 8 * 3600e3 - n * 864e5); return d.toISOString().slice(0, 10); };
+const TONEMARK = {1: `<span class="ob up">▲ 利多</span>`, "-1": `<span class="ob down">▼ 利空</span>`, 0: `<span class="ob mid">● 觀察</span>`};
+
+/* ---------------- ETF 資料（etf.json：持股、規模、配息） ---------------- */
+let ETFI = {etf: {}, holders: {}};
+const yiAum = v => v == null ? "—" : v >= 1e8 ? fmt(Math.round(v / 1e8)) + " 億" : fmt(Math.round(v / 1e4)) + " 萬";
+const FREQ = {"Monthly": "月配", "Quarterly": "季配", "Semi-Annual": "半年配", "Annual": "年配"};
+const ETYPE_NOTE = {"槓桿反向": "每日追蹤指數的倍數或反向，適合極短線，不適合長抱", "商品期貨": "持有期貨，會有轉倉成本", "債券": "主要持有債券，跟利率反向", "主動式": "經理人主動選股，沒有固定追蹤指數", "國外股票": "投資海外市場，含匯率風險", "國內股票": "追蹤台股指數或選股規則"};
+function etfWhy(s) {
+  const e = ETFI.etf[s.code] || {}, a = [];
+  const top = e.top || [], t1 = top[0], sum10 = top.reduce((x, y) => x + (y[2] || 0), 0);
+  if (e.aum >= 1e11) a.push(`資產規模 ${yiAum(e.aum)}，是市場上規模最大的 ETF 之一，流動性好、清算風險低`);
+  else if (e.aum >= 1e10) a.push(`資產規模 ${yiAum(e.aum)}，流動性足夠`);
+  if (e.yld >= 4) a.push(`近 12 個月每單位配息 ${e.div12} 元，以現價算殖利率約 ${e.yld}%${e.divFreq ? `（${FREQ[e.divFreq] || e.divFreq}）` : ""}`);
+  if (e.ret && e.ret["1y"] != null && e.ret["1y"] > 10) a.push(`近一年股價報酬 ${pct(e.ret["1y"])}${e.ret.ytd != null ? `，今年以來 ${pct(e.ret.ytd)}` : ""}`);
+  const fee = parseFloat(e.fee); if (fee && fee <= 0.3) a.push(`管理費 ${e.fee}，長期持有的費用低`);
+  if (sum10 && sum10 < 40 && top.length >= 10) a.push(`前十大持股合計只占 ${sum10.toFixed(1)}%，持股分散`);
+  else if (t1 && t1[2] >= 30) a.push(`最大持股 ${t1[1]} 占 ${t1[2]}%，表現主要跟著它走`);
+  if (e.prem != null && Math.abs(e.prem) <= 0.3) a.push(`折溢價 ${pct(e.prem)}，市價貼近淨值，沒有買貴`);
+  if (s.f20 > 0 && s.f5 > 0) a.push(`三大法人近 20 日與近 5 日都買超（${lots(s.f20)} / ${lots(s.f5)}）`);
+  if (s.ma20 && s.price > s.ma20 && s.ch20 != null && s.ch20 > 0 && s.ch20 <= 12) a.push(`站上 20 日均線，近 20 日上漲 ${s.ch20}%，走勢穩健`);
+  return a.length ? a : ["目前數據沒有明顯優勢"];
+}
+function etfBear(s) {
+  const e = ETFI.etf[s.code] || {}, a = [], top = e.top || [], t1 = top[0];
+  if (s.et === "槓桿反向") a.push("槓桿／反向 ETF 每天重設倍數，盤整或來回震盪時淨值會被侵蝕，長期報酬可能遠低於指數的倍數；系統不放進配置建議");
+  if (s.et === "商品期貨") a.push("期貨型 ETF 每月要把快到期的合約換成下一期（轉倉），正價差時會產生成本，長期報酬可能低於商品本身");
+  if (s.et === "債券") a.push("債券 ETF 價格跟利率反向，利率上升時會跌；長天期債券波動更大，海外債券還有匯率風險");
+  if (s.et === "國外股票") a.push("投資海外市場，報酬會受新台幣匯率影響；海外市場收盤時間不同，台股交易時段的價格可能偏離淨值");
+  if (s.et === "主動式") a.push("主動式 ETF 由經理人選股，績效取決於經理人判斷，不一定贏過大盤，費用通常比指數型高");
+  if (t1 && t1[2] >= 40) a.push(`最大持股 ${t1[1]} 占 ${t1[2]}%，集中度很高，等於大部分押在這一檔上`);
+  if (e.aum && e.aum < 2e9) a.push(`資產規模只有 ${yiAum(e.aum)}，規模太小的 ETF 可能被清算下市，成交量也較少`);
+  if (e.prem != null && e.prem >= 1) a.push(`目前溢價 ${e.prem}%（市價比淨值貴），追價等於多付了溢價`);
+  else if (e.prem != null && e.prem <= -1) a.push(`目前折價 ${Math.abs(e.prem)}%，可能反映流動性不足或海外市場變動`);
+  const fee = parseFloat(e.fee); if (fee >= 0.8) a.push(`管理費 ${e.fee} 偏高，長期會侵蝕報酬`);
+  if (e.inc && (Date.now() - new Date(e.inc.replace(/\//g, "-"))) / 864e5 < 365) a.push(`成立日 ${e.inc}，不到一年，績效與配息紀錄還很短`);
+  if (s.ch20 != null && s.ch20 >= 15) a.push(`近 20 日已漲 ${s.ch20}%，短線漲多，追高容易套在高點`);
+  if (s.f20 < 0 && s.f5 < 0) a.push(`三大法人近 20 日與近 5 日都賣超（${lots(s.f20)} / ${lots(s.f5)}）`);
+  if (!s.liq) a.push(`當日成交量只有 ${s.vol ?? 0} 張，流動性不足，買賣價差可能很大`);
+  if (a.length < 2) a.push("ETF 會跟著持股與大盤一起波動，大盤回檔時一樣會跌");
+  return a;
+}
+function etfHTML(s) {
+  const e = ETFI.etf[s.code];
+  const links = `${A("Yahoo 持股明細", yahooQ(s, "holding"))}、${A("Yahoo 配息", yahooQ(s, "dividend"))}${e?.site ? `、${A("發行投信網站", e.site)}` : ""}`;
+  if (!e) return `<div class="etfbox"><h4>ETF 持股與基本資料</h4><p class="hint">還沒有這檔的資料（每個交易日晚上更新）。可以先看 ${links}。</p></div>`;
+  const kv = [["類型", `${esc(s.et || "")}${ETYPE_NOTE[s.et] ? `<small>${ETYPE_NOTE[s.et]}</small>` : ""}`], ["追蹤指數", esc(e.idx && e.idx !== "不適用" ? e.idx : "主動式，無追蹤指數")], ["發行投信", esc((e.issuer || "").replace("證券投資信託股份有限公司", "投信"))], ["成立日", esc(e.inc || "—")],
+    ["資產規模", `${yiAum(e.aum)}<small>${esc(e.aumDate || "")}</small>`], ["管理費", esc(e.fee || "—")], ["配息", e.div12 ? `近 12 月 ${e.div12} 元・殖利率 ${e.yld ?? "—"}%<small>${FREQ[e.divFreq] || e.divFreq || ""}</small>` : (e.divFreq ? FREQ[e.divFreq] || e.divFreq : "不配息或尚未配息")],
+    ["折溢價", e.prem != null ? `${pct(e.prem)}<small>${esc(e.premDate || "")}</small>` : "—"]];
+  const ret = e.ret ? [["近 1 月", e.ret["1m"]], ["近 3 月", e.ret["3m"]], ["近 6 月", e.ret["6m"]], ["近 1 年", e.ret["1y"]], ["今年以來", e.ret.ytd]].filter(x => x[1] != null) : [];
+  const bar = (w, max) => `<span class="wbar"><i style="width:${Math.min(100, w / (max || 100) * 100)}%"></i></span>`;
+  const top = e.top || [], mx = Math.max(...top.map(x => x[2] || 0), 1), sum10 = top.reduce((x, y) => x + (y[2] || 0), 0);
+  const topHTML = top.length ? `<h5>前十大持股 <small>資料日期 ${esc(e.topDate || "")}・投信每月公告，約落後 1–2 個月</small></h5><table class="holdtbl"><tbody>${top.map(([tk, nm, w], i) => `<tr><td class="rk">${i + 1}</td><td>${BY[tk] ? `<button type="button" class="linkbtn" data-an="${tk}"><code>${tk}</code> ${esc(nm)}</button>` : esc(nm)}</td><td class="num">${w}%</td><td class="bc">${bar(w, mx)}</td></tr>`).join("")}</tbody></table><p class="hint">前十大合計 ${sum10.toFixed(1)}%。</p>` : "";
+  const ALN = {stock: "股票", bond: "債券", cash: "現金", other: "其他"};
+  const alloc = e.alloc && Object.keys(e.alloc).length ? `<h5>資產配置</h5><div class="allocbar">${Object.entries(e.alloc).filter(([, v]) => v > 0).map(([k, v], i) => `<i style="flex-basis:${v}%;background:${COLORS[i]}" title="${ALN[k] || k} ${v}%"></i>`).join("")}</div><p class="hint">${Object.entries(e.alloc).filter(([, v]) => v > 0).map(([k, v]) => `${ALN[k] || k} ${v}%`).join("・")}</p>` : "";
+  const inds = (e.inds || []).slice(0, 8), imx = Math.max(...inds.map(x => x[1] || 0), 1);
+  const indHTML = inds.length ? `<h5>產業／地區配置 <small>${esc(e.indDate || "")}</small></h5><table class="holdtbl"><tbody>${inds.map(([n, w]) => `<tr><td>${esc(n)}</td><td class="num">${w}%</td><td class="bc">${bar(w, imx)}</td></tr>`).join("")}</tbody></table>` : "";
+  const divHTML = (e.divs || []).length ? `<h5>最近配息</h5><p class="hint" style="margin-top:0">${e.divs.map(([d, v]) => `${d} 配 ${v} 元`).join("・")}</p>` : "";
+  return `<div class="etfbox"><h4>ETF 持股與基本資料</h4>
+    <div class="kv">${kv.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
+    ${ret.length ? `<div class="retrow">${ret.map(([k, v]) => `<div><span>${k}</span><b class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${pct(v)}</b></div>`).join("")}</div>` : ""}
+    <div class="etfcols"><div>${topHTML}</div><div>${alloc}${indHTML}${divHTML}</div></div>
+    <p class="hint">資料來源：${links}（${esc(ETFI.source || "")}，更新 ${esc((ETFI.generated || "").replace("T", " "))}）</p></div>`;
+}
+function holdersHTML(s) {
+  const hs = (ETFI.holders || {})[s.code];
+  if (!hs || !hs.length) return "";
+  return `<div class="holders"><h4>持有這檔的 ETF <small>（列在前十大持股裡的，共 ${hs.length} 檔）</small></h4><div class="cchips">${hs.slice(0, 16).map(([c, w]) => `<button type="button" class="cchip" data-an="${c}"><code>${c}</code>${esc(BY[c]?.name || "")}<small style="color:var(--muted);letter-spacing:0">${w}%</small></button>`).join("")}</div><p class="hint">大型 ETF 調整持股或資金大量申購贖回時，會帶動這檔的買賣盤。</p></div>`;
+}
+
+/* ---------------- 線形圖與短線動態（附查核連結） ---------------- */
+const SER = {};
+function loadSeries(code) { const k = code[0]; if (!SER[k]) SER[k] = dataFetch(`series/${k}.json`).catch(() => null); return SER[k]; }
+function maOf(arr, w) { return arr.map((_, i) => { if (i < w - 1) return null; const sl = arr.slice(i - w + 1, i + 1); return sl.some(v => v == null) ? null : sl.reduce((x, y) => x + y, 0) / w; }); }
+function chartSVG(s, ser, L) {
+  const raw = ser?.p?.[s.code]; if (!raw) return "";
+  const idx = raw.map((v, i) => [i, v]).filter(x => x[1] != null);
+  if (idx.length < 10) return "";
+  const closes = raw.slice(), dates = ser.dates;
+  if (DB.live && DB.live[s.mkt] && DB.live[s.mkt] > dates[dates.length - 1]) { closes.push(s.price); dates.push(DB.live[s.mkt]); }
+  const m20 = maOf(closes, 20), m60 = maOf(closes, 60);
+  const lines = [[L.entries[1][1], "第二筆", "var(--accent)"], [L.stop, "停損", "var(--down)"], [L.tp1 || L.review, L.tp1 ? "停利一" : "評估價", "var(--up)"]];
+  const cv = closes.filter(v => v != null), cmin = Math.min(...cv), cmax = Math.max(...cv), span = cmax - cmin || cmax * .05;
+  const near = lines.filter(x => x[0] >= cmin - span * .6 && x[0] <= cmax + span * .6);   // 太遠的線不畫，避免把走勢壓扁
+  const far = lines.filter(x => !near.includes(x));
+  const vals = [...cv, ...near.map(x => x[0])];
+  let lo = Math.min(...vals), hi = Math.max(...vals); const padv = (hi - lo) * .06; lo -= padv; hi += padv;
+  const W = 640, H = 230, l = 6, r = 104, t = 10, b = 24, n = closes.length;
+  const X = i => l + i / (n - 1) * (W - l - r), Y = v => t + (hi - v) / (hi - lo) * (H - t - b);
+  const path = arr => { let d = "", pen = false; arr.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1); pen = true; }); return d; };
+  const last = closes[n - 1], first = closes.find(v => v != null), up = last >= first;
+  const area = path(closes) + `L${X(n - 1).toFixed(1)} ${H - b}L${X(closes.findIndex(v => v != null)).toFixed(1)} ${H - b}Z`;
+  const md = d => d ? `${+d.slice(5, 7)}/${+d.slice(8)}` : "";
+  const xl = [0, Math.floor((n - 1) / 2), n - 1].map(i => `<text x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}" class="ax">${md(dates[i])}</text>`).join("");
+  const hl = near.map(([v, name, c]) => `<line x1="${l}" x2="${W - r}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${c}" stroke-dasharray="4 4" stroke-width="1"/><text x="${W - r + 4}" y="${(Y(v) + 4).toFixed(1)}" class="lb" fill="${c}">${name} ${fmt(v)}</text>`).join("");
+  return `<figure class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(s.name)} 近 ${n} 個交易日收盤價走勢">
+    <defs><linearGradient id="g${s.code}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${up ? "var(--up)" : "var(--down)"}" stop-opacity=".18"/><stop offset="1" stop-color="${up ? "var(--up)" : "var(--down)"}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#g${s.code})"/>
+    <path d="${path(m60)}" fill="none" stroke="var(--muted)" stroke-width="1" stroke-dasharray="2 3"/>
+    <path d="${path(m20)}" fill="none" stroke="var(--c3)" stroke-width="1.3"/>
+    <path d="${path(closes)}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="1.8"/>
+    ${hl}${xl}</svg>
+    <figcaption><span class="lg"><i style="background:${up ? "var(--up)" : "var(--down)"}"></i>收盤價</span><span class="lg"><i style="background:var(--c3)"></i>20 日均線</span><span class="lg"><i class="dash"></i>60 日均線</span>近 ${n} 個交易日・虛線是這次建議的價位${far.length ? `（${far.map(x => `${x[1]} ${fmt(x[0])}`).join("、")} 離目前走勢較遠，沒畫進圖裡）` : ""}</figcaption></figure>`;
+}
+function obsItems(s) {
+  const it = [], yq = p => yahooQ(s, p), twse = s.mkt === "上市";
+  const items = (NEWS?.news?.[s.code] || []), wk = items.filter(x => x[2] >= isoAgo(7)), ann = (NEWS?.ann?.[s.code] || []).filter(x => x[0] >= isoAgo(7));
+  if (wk.length) {
+    const p = wk.filter(x => x[4] > 0).length, n = wk.filter(x => x[4] < 0).length, lt = wk[0];
+    it.push([p > n ? 1 : n > p ? -1 : 0, `<b>新聞走向</b>：近 7 天 ${wk.length} 則，偏正面 ${p}、偏負面 ${n}。最新：${A(esc(lt[0]), lt[3])}<span class="ns">${esc(lt[1])} ${lt[2]}</span>`]);
+  } else it.push([0, `<b>新聞走向</b>：近 7 天沒有標題提到這家公司的新聞。${A("Google 新聞", googleNews(s))}`]);
+  if (ann.length) it.push([0, `<b>重大訊息</b>：${ann.slice(0, 2).map(([d, t]) => `${d} ${esc(t)}`).join("；")}。${A("公開資訊觀測站", "https://mops.twse.com.tw/mops/#/web/t05st01")}`]);
+  if (s.ma20) {
+    const a20 = s.price > s.ma20, a60 = s.ma60 ? s.price > s.ma60 : null;
+    let txt = `<b>線形</b>：收盤 ${fmt(s.price)}，在 20 日均線 ${fmt(s.ma20)} ${a20 ? "之上" : "之下"}${s.ma60 ? `、60 日均線 ${fmt(s.ma60)} ${a60 ? "之上" : "之下"}` : ""}`;
+    if (s.ch20 != null) txt += `，近 20 日${s.ch20 >= 0 ? "漲" : "跌"} ${Math.abs(s.ch20)}%`;
+    if (s.hi20 && s.price < s.hi20) txt += `，離近 20 日高點 ${fmt(s.hi20)} 還有 ${((s.hi20 / s.price - 1) * 100).toFixed(1)}%`;
+    else if (s.hi20 && s.price >= s.hi20) txt += `，創近 20 日新高`;
+    it.push([a20 && a60 !== false ? 1 : !a20 && a60 === false ? -1 : 0, txt + `。${A("Yahoo 技術分析", yq("technical-analysis"))}・線形圖見下方`]);
+  }
+  if (s.rsi != null && (s.rsi >= 75 || s.rsi <= 30)) it.push([s.rsi >= 75 ? -1 : 0, `<b>短線熱度</b>：14 日 RSI ${s.rsi}，${s.rsi >= 75 ? "短線過熱，容易拉回" : "短線超賣，可能出現跌深反彈，但趨勢未必反轉"}。`]);
+  if (s.inst != null) {
+    const r = s.vol ? Math.round(s.inst / s.vol * 100) : null;
+    it.push([Math.sign(s.f5 ?? s.inst) || 0, `<b>法人</b>：三大法人今天${s.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(s.inst))} 張${r != null ? `（約占成交量 ${Math.abs(r)}%）` : ""}${s.f5 != null ? `，近 5 日 ${lots(s.f5)}` : ""}${s.f20 != null ? `、近 20 日 ${lots(s.f20)}` : ""}。${A("Yahoo 法人買賣", yq("institutional-trading"))}${twse ? `・${A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/t86.html")}` : ""}`]);
+  }
+  if (s.ls != null || s.lb != null) {
+    const ratio = s.ls20 ? s.ls / Math.max(s.ls20, 1) : null, big = ratio && ratio >= 2 && s.vol && s.ls > 0.05 * s.vol;
+    let txt = `<b>借券賣出（放空賣壓）</b>：今天借券賣出 ${fmt(s.ls ?? 0)} 張${s.ls20 != null ? `，近 20 日平均 ${fmt(s.ls20)} 張${ratio && ratio >= 1.5 ? `，放大 ${ratio.toFixed(1)} 倍` : ""}` : ""}`;
+    if (s.lb != null) txt += `；借券賣出餘額 ${fmt(s.lb)} 張${s.lbCh5 ? `（5 日 ${s.lbCh5 > 0 ? "+" : ""}${fmt(s.lbCh5)}）` : ""}`;
+    txt += big ? "。借券賣出突然放大，通常是外資或法人放空、避險，短線會形成賣壓" : "。";
+    it.push([big || (s.lbCh5 > 0 && s.vol && s.lbCh5 > 0.3 * s.vol) ? -1 : 0, txt + ` ${A("Yahoo 資券變化", yq("margin"))}${twse ? `・${A("證交所借券賣出", "https://www.twse.com.tw/zh/trading/margin/twt93u.html")}` : ""}`]);
+  }
+  if (s.mb != null || s.sb != null) {
+    const pctCh = (v, ch) => v && ch != null && v - ch > 0 ? Math.round(ch / (v - ch) * 100) : null;
+    const mp = pctCh(s.mb, s.mbCh5), sp = pctCh(s.sb, s.sbCh5);
+    const neg = mp != null && mp >= 10 && s.chg < 0;
+    it.push([neg ? -1 : 0, `<b>融資融券</b>：融資餘額 ${fmt(s.mb ?? 0)} 張${mp != null ? `（5 日 ${mp > 0 ? "+" : ""}${mp}%）` : ""}、融券餘額 ${fmt(s.sb ?? 0)} 張${sp != null ? `（5 日 ${sp > 0 ? "+" : ""}${sp}%）` : ""}。${neg ? "散戶融資加碼但股價下跌，籌碼變亂。" : sp != null && sp >= 20 ? "融券大增代表看空的人變多，但回補時也可能造成軋空。" : ""}${A("Yahoo 資券變化", yq("margin"))}${twse ? `・${A("證交所融資融券", "https://www.twse.com.tw/zh/trading/margin/mi-margn.html")}` : ""}`]);
+  }
+  it.push([0, `<b>誰在買賣</b>：公開資料無法判斷是否有人「故意」壓低或拉抬，但可以看哪幾家券商分點大量進出：${A("Yahoo 主力進出", yq("broker-trading"))}・${A("Goodinfo 個股", GOODINFO(s.code))}`]);
+  return it;
+}
+function obsHTML(s, ser, L) {
+  const its = obsItems(s);
+  return `<div class="obsbox"><h4>短線動態與籌碼 <small>每一項都附查核連結</small></h4>${chartSVG(s, ser, L)}<ul class="obs">${its.map(([t, h]) => `<li>${TONEMARK[t]}<span>${h}</span></li>`).join("")}</ul>${s.chipDate ? "" : ""}<p class="hint">籌碼資料：證交所／櫃買中心每日公告（融資融券、借券賣出、三大法人），資料日期 ${DB.date}。</p></div>`;
+}
+function attachObs(root) {
+  root.querySelectorAll("[data-obs]").forEach(el => {
+    const s = BY[el.dataset.obs]; if (!s) return;
+    const price = +el.dataset.price || s.price;
+    el.innerHTML = `<p class="hint">載入線形圖與籌碼中…</p>`;
+    Promise.all([loadSeries(s.code), loadNews()]).then(([ser]) => { el.innerHTML = obsHTML(s, ser, levels(s, price)); });
+  });
+}
+function attachAll(root) { attachChain(root); attachNews(root); attachObs(root); }
+
 /* ---------------- rendering pieces ---------------- */
 function ladderHTML(L, etf) {
   let h = L.entries.map(([k, v]) => `<tr class="en"><td>${k}</td><td>${fmt(v)}</td></tr>`).join("");
   if (L.mode === "short") h += `<tr class="tp"><td>停利二（再出 50%）</td><td>${fmt(L.tp2)}</td></tr><tr class="tp"><td>停利一（先出 50%）</td><td>${fmt(L.tp1)}</td></tr><tr class="sl"><td>停損（收盤跌破全出）</td><td>${fmt(L.stop)}</td></tr>`;
-  else h += `<tr class="tp"><td>重新評估價（考慮賣 1/3）</td><td>${fmt(L.review)}</td></tr><tr class="sl"><td>最大虧損線（全出）</td><td>${fmt(L.stop)}</td></tr>`;
-  const avg = fmt(+L.avg.toFixed(2)), d = daysText(days());
+  else h += `<tr class="tp"><td>重新評估價（考慮賣一半）</td><td>${fmt(L.review)}</td></tr><tr class="sl"><td>停損（收盤跌破全出）</td><td>${fmt(L.stop)}</td></tr>`;
+  const avg = fmt(+L.avg.toFixed(2)), d = daysText(days()), dl = (L.entries[0][1] - L.stop) / L.entries[0][1];
+  const why = `<li>第二筆設在${L.e2why}；兩筆都買到時平均成本約 ${avg}。</li><li>停損：${L.stopWhy}（從現價算約 −${(dl * 100).toFixed(1)}%）。</li><li>${L.mode === "short" ? "停利" : "重新評估價"}：依這檔近 60 日的實際波動，持有 ${d} 的正常波動約 ±${(L.m * 100).toFixed(1)}%，${L.mode === "short" ? "停利一取 0.6 倍、停利二取 1.2 倍" : "取 0.6 倍（至少 12%）"}，不抓最樂觀的情境。${L.resist ? `途中會先碰到前波高點 ${fmt(L.resist)}，那裡可能有賣壓。` : ""}</li>`;
   const rules = L.mode === "short"
-    ? `<li>持有到第 ${d} 仍沒碰到停利一，就出場。</li><li>碰到停利一後，把剩下部位的停損上移到平均成本 ${avg}。</li>`
-    : `<li>${etf ? "ETF 可改為每月定期定額，不必等回檔。" : "月營收年增率連兩個月轉負：減碼一半。"}</li><li>三筆都買到時平均成本約 ${avg}；預計持有 ${d}，期滿重新評估。</li>`;
-  return `<table class="ladder"><tbody>${h}</tbody></table><ul class="rules">${rules}</ul>`;
+    ? `<li>持有到第 ${d} 仍沒碰到停利一，就出場。</li><li>碰到停利一後，把剩下部位的停損上移到平均成本 ${avg}。</li><li>第二筆沒回檔到就不追，用第一筆的部位操作即可。</li>`
+    : `<li>${etf ? "ETF 可改為每月定期定額，不必等回檔。" : "月營收年增率連兩個月轉負：減碼一半。"}</li><li>第二筆沒回檔到就不追；預計持有 ${d}，期滿重新評估。</li>`;
+  return `<table class="ladder"><tbody>${h}</tbody></table><ul class="rules">${why}${rules}</ul>`;
 }
 function stockBody(s, opts = {}) {
-  const price = opts.price || s.price, L = levels(price, s.volc, s.etf), h = modeKey(), sc = scoreOf(s), x = opts.row;
+  const price = opts.price || s.price, L = levels(s, price), h = modeKey(), sc = scoreOf(s), x = opts.row;
   const tags = [];
   s.themes.forEach(t => tags.push(`<span class="tag">${esc(DB.themes[t]?.n || t)}</span>`));
   tags.push(`<span class="tag">${esc(s.ind)}</span>`, `<span class="tag">${s.mkt}</span>`, `<span class="tag">${SIZENAME[s.size]}${s.etf ? "" : "股"}</span>`, `<span class="tag r${s.risk}">${RISKNAME[s.risk]}</span>`, `<span class="tag">${VOLNAME[s.volc]}</span>`, `<span class="tag">${h === "short" ? "波段" : "長期"}評分 ${sc}/5</span>`);
   if (!isRec(s)) tags.push(`<span class="tag warn">不在推薦清單</span>`);
   const fit = Math.floor(state.budget / (price * 1.001425));
-  const tr = h === "short" ? 2 : 3, lotsN = Math.floor((x?.shares || 0) / 1000);
+  const tr = 2, lotsN = Math.floor((x?.shares || 0) / 1000);
   const firstTxt = !x ? "" : isLot() ? sharesText(Math.max(1, Math.floor(lotsN / tr)) * 1000) : sharesText(Math.max(1, Math.floor(x.shares / tr)));
   const lotNote = x && isLot() && lotsN < tr ? `<span class="hint" style="margin:0">只有 ${lotsN} 張，分不成 ${tr} 筆：建議先在第一筆價位買 1 張，其餘等回檔到後面的進場價再買。</span>` : "";
   const buy = x ? `<div class="buy"><span>配置 <b>${Math.round(x.w * 100)}%</b></span><span>第一筆 <b>${firstTxt}</b></span><span>全部到位 <b>${sharesText(x.shares)}</b></span><span>預估投入 <b>${money(x.cost)}</b></span>${lotNote}</div>`
     : fit >= 1 ? `<div class="buy"><span>用全部預算可買 <b>${sharesText(fit)}</b></span><span>一張 <b>${money(price * 1000 * 1.001425)}</b></span></div>` : `<div class="buy">預算不足一股（一股 ${money(price * 1.001425)}）。</div>`;
-  const n = s.note, why = [...(n.why || []), ...autoWhy(s).filter(t => !t.startsWith("目前數據"))].slice(0, 6), bear = [...(n.bear || []), ...autoBear(s)].slice(0, 8);
+  const n = s.note, why = [...(n.why || []), ...(s.etf ? etfWhy(s) : autoWhy(s)).filter(t => !t.startsWith("目前數據"))].slice(0, 6), bear = [...(n.bear || []), ...(s.etf ? etfBear(s) : autoBear(s))].slice(0, 8);
   const src = [[`FinLab ${s.code}`, FINLAB(s.code)], [`Goodinfo ${s.code}`, GOODINFO(s.code)], ...(n.src || [])];
   return `<div class="tags">${tags.join("")}</div>${buy}
    ${opts.price && opts.price !== s.price ? `<p class="hint">價位用你輸入的現價 ${fmt(opts.price)} 計算；其他數據是 ${DB.date} 的資料。</p>` : ""}
    <div class="metrics">${metricsOf(s).map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>
    ${finHTML(s)}
-   <div class="cols"><div><h4>看好的理由</h4><ul>${why.map(t => `<li>${esc(t)}</li>`).join("")}</ul><h4 style="margin-top:10px">主要風險</h4><ul>${bear.map(t => `<li>${esc(t)}</li>`).join("")}</ul>${n.adjNote ? `<p class="hint">${esc(n.adjNote)}</p>` : ""}</div>
+   <div class="cols"><div><h4>看好的理由</h4><ul>${(why.length ? why : ["目前基本面數據沒有明顯優勢，請參考下方短線動態"]).map(t => `<li>${esc(t)}</li>`).join("")}</ul><h4 style="margin-top:10px">主要風險</h4><ul>${bear.map(t => `<li>${esc(t)}</li>`).join("")}</ul>${n.adjNote ? `<p class="hint">${esc(n.adjNote)}</p>` : ""}</div>
    <div><h4>${h === "short" ? "波段" : "長期"}進出場參考價（持有 ${daysText(days())}）</h4>${ladderHTML(L, s.etf)}</div></div>
    ${n.event ? `<div class="event">${esc(n.event)}</div>` : ""}
-   ${s.etf ? "" : `<div data-chain="${s.code}"></div><div data-news="${s.code}"></div>`}
+   <div data-obs="${s.code}" data-price="${price}"></div>
+   ${s.etf ? etfHTML(s) : `<div data-chain="${s.code}"></div>${holdersHTML(s)}`}
+   <div data-news="${s.code}"></div>
    <div class="src">資料來源：證交所／櫃買中心 OpenAPI（${DB.date}）、${src.map(([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${esc(t)}</a>`).join("、")}</div>`;
 }
 function stockRow(s, rows) {
@@ -563,7 +749,7 @@ function stockRow(s, rows) {
   const dot = x ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${COLORS[ci % COLORS.length]};margin-right:6px"></span>` : "";
   const on = watch.has(s.code);
   d.innerHTML = `<summary><button type="button" class="star" data-star="${s.code}" aria-pressed="${on}" aria-label="${on ? "移出" : "加入"}自選股">${on ? "★" : "☆"}</button><span class="s-name">${dot}<code>${s.code}</code>${esc(s.name)}<small>${SIZENAME[s.size]}</small><span class="dots" aria-label="評分 ${sc} 分">${"●".repeat(sc)}${"○".repeat(5 - sc)}</span></span><span class="s-price">${fmt(s.price)}</span><span class="s-one">${esc(oneLine(s))}</span><span class="s-fit">${fitHTML}</span></summary><div class="body"></div>`;
-  d.addEventListener("toggle", () => { if (d.open) { const b = d.querySelector(".body"); b.innerHTML = stockBody(s, {row: x}); attachChain(b); attachNews(b); } });
+  d.addEventListener("toggle", () => { if (d.open) { const b = d.querySelector(".body"); b.innerHTML = stockBody(s, {row: x}); attachAll(b); } });
   return d;
 }
 
@@ -653,6 +839,8 @@ function render() {
   });
   const ph = pagerHTML(flat.length, pages); $("pagerTop").innerHTML = ph; $("pagerBot").innerHTML = ph;
   renderMine();
+  if (view === "etf") renderETF();
+  if (view === "forecast" && FC) renderForecast();
   saveUI();
   if (lastAnalysis) lastAnalysis();
 }
@@ -664,7 +852,7 @@ function renderMine() {
   else {
     const tr = holdings.map(hd => {
       const s = BY[hd.code]; if (!s) return `<tr><td>${esc(hd.code)}</td><td colspan="7">資料庫找不到這個代號</td><td><button type="button" class="linkbtn" data-delhold="${hd.id}">刪除</button></td></tr>`;
-      const e = exitFor(+hd.cost, s.volc, s.etf), pl = (s.price - hd.cost) / hd.cost;
+      const e = exitFor(s, +hd.cost), pl = (s.price - hd.cost) / hd.cost;
       const net = (s.price * (1 - (s.etf ? .001 : .003) - .001425) - hd.cost * 1.001425) * hd.qty;
       const sig = s.price <= e.stop ? `<span class="sig exit">跌破停損 ${fmt(e.stop)}</span>` : s.price >= e.tp ? `<span class="sig tp">已達${e.tpName} ${fmt(e.tp)}</span>` : `<span class="sig hold">持有中</span>`;
       return `<tr><td><button type="button" class="linkbtn" data-go="${s.code}">${s.code} ${esc(s.name)}</button></td><td class="num">${fmt(hd.qty)}</td><td class="num">${fmt(hd.cost)}</td><td class="num">${fmt(s.price)}</td><td class="num ${pl >= 0 ? "up" : "down"}">${(pl * 100).toFixed(1)}%</td><td class="num ${net >= 0 ? "up" : "down"}">${money(net)}</td><td class="num">${fmt(e.stop)} / ${fmt(e.tp)}</td><td>${sig}</td><td><button type="button" class="linkbtn" data-delhold="${hd.id}">刪除</button></td></tr>`;
@@ -686,7 +874,7 @@ function analyze(q, price) {
   const s = BY[q.toUpperCase()] || S.find(x => x.name === q) || S.find(x => x.name.includes(q));
   if (!q) { out.innerHTML = ""; lastAnalysis = null; return; }
   if (!s) { out.innerHTML = `<p class="status">找不到「${esc(q)}」。這裡只收上市櫃普通股與常見 ETF，興櫃、權證不在資料庫。</p>`; lastAnalysis = null; return; }
-  lastAnalysis = () => { out.innerHTML = `<div class="ind-h"><h3><code style="font:600 14px var(--f-data);color:var(--muted);margin-right:6px">${s.code}</code>${esc(s.name)}</h3><span class="s-price">${fmt(price || s.price)}</span></div>` + stockBody(s, {price: price || null, row: ROWS.find(r => r.s === s)}); attachChain(out); attachNews(out); };
+  lastAnalysis = () => { out.innerHTML = `<div class="ind-h"><h3><code style="font:600 14px var(--f-data);color:var(--muted);margin-right:6px">${s.code}</code>${esc(s.name)}</h3><span class="s-price">${fmt(price || s.price)}</span></div>` + stockBody(s, {price: price || null, row: ROWS.find(r => r.s === s)}); attachAll(out); };
   lastAnalysis();
 }
 
@@ -702,8 +890,130 @@ function goTo(code) {
   const el = $("s" + code); if (el) { el.open = true; el.scrollIntoView({behavior: "smooth", block: "center"}); }
 }
 
+/* ---------------- 明日走向 ---------------- */
+let FC = null, fcLoading = null;
+function loadFC(bust) { if (!fcLoading || bust) fcLoading = dataFetch("forecast.json", bust).catch(() => null).then(j => FC = j); return fcLoading; }
+const fcLabel = p => p >= 56 ? ["偏多", "up"] : p <= 44 ? ["偏空", "down"] : ["震盪", "mid"];
+const fcRow = c => { const r = FC?.stocks?.[c]; return r ? Object.fromEntries(FC.fields.map((f, i) => [f, r[i]])) : null; };
+const WEEK = "日一二三四五六";
+const dayTxt = iso => iso ? `${+iso.slice(5, 7)}/${+iso.slice(8)}（週${WEEK[new Date(iso + "T00:00:00+08:00").getDay()]}）` : "";
+const fbar = v => `<span class="fbar"><i class="${v >= 0 ? "pos" : "neg"}" style="${v >= 0 ? "left:50%" : `right:50%`};width:${Math.min(50, Math.abs(v) * 50)}%"></i></span>`;
+const yfq = sym => `https://finance.yahoo.com/quote/${encodeURIComponent(sym)}`;
+function sparkSVG(series, w = 220, h = 56) {
+  const v = series.map(x => x[1]); if (v.length < 3) return "";
+  const lo = Math.min(...v), hi = Math.max(...v), X = i => i / (v.length - 1) * w, Y = y => 4 + (hi - y) / ((hi - lo) || 1) * (h - 8);
+  const up = v[v.length - 1] >= v[0];
+  return `<svg viewBox="0 0 ${w} ${h}" class="spark" aria-hidden="true"><path d="${v.map((y, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(y).toFixed(1)).join("")}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="1.6"/></svg>`;
+}
+function fcMarketHTML() {
+  const M = FC.market, [lb, cl] = fcLabel(M.prob), tx = M.taiex || {}, f = M.f || {};
+  const usTxt = (M.us || []).map(([sym, nm, d, c, p]) => `${A(esc(nm), yfq(sym))} <b class="${p > 0 ? "up" : p < 0 ? "down" : ""}">${pct(p)}</b><small>${d.slice(5)}</small>`).join("、");
+  const pos = (M.news || []).filter(x => x[4] > 0).length, neg = (M.news || []).filter(x => x[4] < 0).length;
+  const rows = [
+    ["美股與費半", .35, f.us, `${FC.basis === "pre" ? "昨晚美股收盤" : "美股期貨盤前"}：${usTxt || "暫時抓不到"}`],
+    ["加權指數線形", .20, f.trend, tx.close ? `收盤 ${fmt(tx.close)}（${tx.chg >= 0 ? "+" : ""}${fmt(tx.chg)} 點），${tx.close > tx.ma5 ? "站上" : "跌破"} 5 日均線 ${fmt(Math.round(tx.ma5))}、${tx.close > tx.ma20 ? "站上" : "跌破"} 20 日均線 ${fmt(Math.round(tx.ma20))}；近 5 日 ${pct(tx.ch5)}，RSI ${tx.rsi}${tx.rsi >= 75 ? "（過熱）" : tx.rsi <= 30 ? "（超賣）" : ""}。${A("證交所大盤資料", "https://www.twse.com.tw/zh/trading/historical/fmtqik.html")}` : "暫無資料"],
+    ["漲跌家數", .15, f.breadth, `今天上漲 ${M.up} 家、下跌 ${M.down} 家（不含 ETF）。`],
+    ["三大法人合計", .15, f.flow, `全部個股合計${M.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(M.inst))} 張。${A("證交所三大法人", "https://www.twse.com.tw/zh/trading/foreign/t86.html")}`],
+    ["市場新聞", .15, f.news, `近 36 小時 ${(M.news || []).length} 則：偏正面 ${pos}、偏負面 ${neg}。`]];
+  const newsList = (M.news || []).slice(0, 6).map(([t, src, d, u, tn]) => `<li><span class="nd">${d.slice(5)}</span>${A(esc(t), u)}<span class="ns">${esc(src)}</span>${TONE[tn] || ""}</li>`).join("");
+  return `<div class="fcm">
+    <div class="fcm-gauge ${cl}"><span class="lbl">大盤 ${dayTxt(FC.target)}</span><strong>${M.prob}<small>%</small></strong><span class="fcl">上漲機率・${lb}</span>${tx.series ? sparkSVG(tx.series) : ""}<span class="hint" style="margin:0">${FC.basis === "pre" ? "開盤前版本：已含昨晚美股收盤與夜間新聞" : "收盤後版本：明早 08:00 前會用美股收盤再更新"}・產生於 ${esc((FC.generated || "").replace("T", " ").slice(5, 16))}</span></div>
+    <div class="fcm-f"><table class="ftbl"><tbody>${rows.map(([n, w, v, t]) => `<tr><th>${n}<small>權重 ${Math.round(w * 100)}%</small></th><td>${fbar(v || 0)}</td><td>${t}</td></tr>`).join("")}</tbody></table>
+    ${newsList ? `<details class="fcnews"><summary>看市場新聞標題</summary><ul class="newslist">${newsList}</ul></details>` : ""}</div></div>`;
+}
+function fcExplain(s, r) {
+  const M = FC.market, beta = Math.max(.5, Math.min(1.6, (s.sd || 1.5) / 1.5)), us = Object.fromEntries((M.us || []).map(x => [x[0], x]));
+  const semi = s.ind === "半導體業" || s.themes.some(t => ["semi", "icdesign", "memory", "ai_server", "cpo"].includes(t));
+  const prev = s.price - (s.chg || 0), pc = prev ? (s.chg || 0) / prev * 100 : 0;
+  const out = [];
+  out.push(["大盤連動", .35, r.mkt, `大盤上漲機率 ${M.prob}%；這檔近 60 日每天平均波動 ${s.sd ?? "—"}%，跟大盤的連動約 ${beta.toFixed(1)} 倍。${semi && FC.basis === "pre" && us["^SOX"] ? `半導體相關另參考費半 ${pct(us["^SOX"][4])}${us.TSM ? `、台積電 ADR ${pct(us.TSM[4])}` : ""}。` : ""}`]);
+  const t = [];
+  if (s.ma5) t.push(`收盤 ${fmt(s.price)} ${s.price > s.ma5 ? "站上" : "跌破"} 5 日均線 ${fmt(s.ma5)}`);
+  if (s.ma20) t.push(`${s.price > s.ma20 ? "在" : "跌破"} 20 日均線 ${fmt(s.ma20)}${s.price > s.ma20 ? " 之上" : ""}`);
+  if (s.rsi != null) t.push(`RSI ${s.rsi}${s.rsi > 72 ? "（偏熱，容易拉回）" : s.rsi < 30 ? "（超賣，可能反彈）" : ""}`);
+  if (Math.abs(pc) >= 9) t.push(pc > 0 ? "今天漲停或接近漲停，隔天常有慣性" : "今天跌停或接近跌停");
+  out.push(["個股線形", .25, r.tech, t.join("，") + `。${A("Yahoo 技術分析", yahooQ(s, "technical-analysis"))}`]);
+  out.push(["法人動向", .20, r.flow, s.inst != null ? `三大法人今天${s.inst >= 0 ? "買" : "賣"}超 ${fmt(Math.abs(s.inst))} 張${s.vol ? `（占成交量 ${Math.abs(Math.round(s.inst / s.vol * 100))}%）` : ""}，近 5 日 ${lots(s.f5)}。${A("Yahoo 法人買賣", yahooQ(s, "institutional-trading"))}` : "沒有法人資料"]);
+  const c = [];
+  if (s.ls != null) c.push(`借券賣出 ${fmt(s.ls)} 張${s.ls20 ? `（20 日平均 ${fmt(s.ls20)}）` : ""}`);
+  if (s.lbCh5) c.push(`借券餘額 5 日 ${s.lbCh5 > 0 ? "+" : ""}${fmt(s.lbCh5)} 張`);
+  if (s.sbCh5) c.push(`融券 5 日 ${s.sbCh5 > 0 ? "+" : ""}${fmt(s.sbCh5)} 張`);
+  if (s.mbCh5) c.push(`融資 5 日 ${s.mbCh5 > 0 ? "+" : ""}${fmt(s.mbCh5)} 張`);
+  out.push(["籌碼賣壓", .10, r.chip, (c.length ? c.join("、") + (r.chip < 0 ? "，有放空或籌碼轉亂的跡象" : "，沒有明顯異常") : "沒有融資券或借券資料") + `。${A("Yahoo 資券變化", yahooQ(s, "margin"))}・${A("Yahoo 主力進出", yahooQ(s, "broker-trading"))}`]);
+  const its = (NEWS?.news?.[s.code] || []).filter(x => x[2] >= isoAgo(2));
+  out.push(["新聞", .10, r.news, its.length ? `近兩天 ${its.length} 則（偏正面 ${r.npos}、偏負面 ${r.nneg}）：${its.slice(0, 3).map(x => A(esc(x[0]), x[3])).join("；")}` : `近兩天沒有相關新聞。${A("Google 新聞", googleNews(s))}`]);
+  return out;
+}
+function fcDetailHTML(s) {
+  const r = fcRow(s.code);
+  if (!r) return `<div class="fcd"><p class="status">${esc(s.code)} ${esc(s.name)} 沒有明日走向：${s.et === "槓桿反向" ? "槓桿反向 ETF 不計算。" : "當日成交量不到 200 張，資料不足以判斷短線方向。"}</p></div>`;
+  const [lb, cl] = fcLabel(r.prob);
+  return `<div class="fcd"><div class="fcd-h"><div><code>${s.code}</code> <b>${esc(s.name)}</b> <span class="s-price">${fmt(s.price)}</span> <span class="${s.chg > 0 ? "up" : s.chg < 0 ? "down" : ""}">${s.chg > 0 ? "+" : ""}${fmt(s.chg)}</span></div><div class="fcd-p ${cl}"><strong>${r.prob}%</strong><span>${dayTxt(FC.target)} 上漲機率・${lb}</span></div></div>
+    <table class="ftbl"><tbody>${fcExplain(s, r).map(([n, w, v, t]) => `<tr><th>${n}<small>權重 ${Math.round(w * 100)}%</small></th><td>${fbar(v || 0)}</td><td>${t}</td></tr>`).join("")}</tbody></table>
+    <p class="hint">條狀圖往右是偏多、往左是偏空。<button type="button" class="linkbtn" data-an="${s.code}">看 ${esc(s.name)} 完整分析與進出場價 →</button></p></div>`;
+}
+function renderForecast() {
+  if (!DB) return;
+  if (!FC) { $("fcMarket").innerHTML = `<p class="status">載入明日走向中…</p>`; loadFC().then(() => { if (FC) Promise.resolve(loadNews()).then(renderForecast); else $("fcMarket").innerHTML = `<p class="status">明日走向資料還沒產生（每天收盤後 21:30 與開盤前 08:00 更新）。</p>`; }); return; }
+  if (!NEWS) { loadNews().then(renderForecast); }
+  $("fcScope").value = state.fcScope || "rec";
+  $("fcMarket").innerHTML = fcMarketHTML();
+  const q = ($("fcQ").value || "").trim();
+  const hit = q ? (BY[q.toUpperCase()] || S.find(x => x.name === q) || S.find(x => x.name.includes(q))) : null;
+  $("fcDetail").innerHTML = q ? (hit ? fcDetailHTML(hit) : `<p class="status">找不到「${esc(q)}」。</p>`) : "";
+  const sc = state.fcScope || "rec", mine = new Set([...watch, ...holdings.map(h => h.code)]);
+  const codes = Object.keys(FC.stocks).filter(c => BY[c] && (sc === "all" ? !BY[c].etf : sc === "etf" ? BY[c].etf : sc === "watch" ? mine.has(c) : isRec(BY[c]) && !BY[c].etf));
+  const rows = codes.map(c => [BY[c], fcRow(c)]).sort((x, y) => y[1].prob - x[1].prob);
+  const item = ([s, r]) => { const [lb, cl] = fcLabel(r.prob); const top = fcExplain(s, r).slice(0, 5).sort((x, y) => Math.abs(y[2] * y[1]) - Math.abs(x[2] * x[1]))[0];
+    return `<button type="button" class="fcrow" data-fc="${s.code}"><span class="fr-n"><code>${s.code}</code>${esc(s.name)}</span><span class="fr-p">${fmt(s.price)}</span><span class="fr-b ${cl}"><i style="width:${r.prob}%"></i></span><span class="fr-v ${cl}">${r.prob}%</span><span class="fr-w">${esc(top[0])}${top[2] >= 0 ? "偏多" : "偏空"}</span></button>`; };
+  const bull = rows.filter(x => x[1].prob >= 56).slice(0, 15), bear = rows.filter(x => x[1].prob <= 44).reverse().slice(0, 15);
+  const scName = {rec: "推薦清單", all: "全部個股", watch: "自選股與持股", etf: "ETF"}[sc];
+  $("fcLists").innerHTML = sc === "watch" && !mine.size ? `<p class="status">還沒有自選股或持股。到推薦清單點 ☆，或在「我的持股」加入。</p>`
+    : `<p class="hint">${scName}中有明日走向的共 ${rows.length} 檔：偏多 ${rows.filter(x => x[1].prob >= 56).length}、震盪 ${rows.filter(x => x[1].prob > 44 && x[1].prob < 56).length}、偏空 ${rows.filter(x => x[1].prob <= 44).length}。點任一檔看原因。</p>
+      <div class="fclists"><section><h3 class="minor up">最偏多</h3>${bull.map(item).join("") || `<p class="status">沒有偏多的標的。</p>`}</section><section><h3 class="minor down">最偏空</h3>${bear.map(item).join("") || `<p class="status">沒有偏空的標的。</p>`}</section></div>
+      ${sc === "watch" ? `<section><h3 class="minor">全部</h3>${rows.map(item).join("")}</section>` : ""}`;
+  const T = FC.track || {}, rate = x => x && x[1] ? `${x[0]}/${x[1]}（${Math.round(x[0] / x[1] * 100)}%）` : "還沒有足夠紀錄";
+  const rec = (T.recent || []).filter(x => x[2] != null || x[4]);
+  $("fcTrack").innerHTML = `<div class="track"><h3 class="minor">過去命中率</h3>
+    <p>大盤方向：<b>${rate(T.mkt)}</b>・個股（只算判斷偏多或偏空的）：<b>${rate(T.stk)}</b>・信心較高（≥62% 或 ≤38%）：<b>${rate(T.strong)}</b></p>
+    ${rec.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>日期</th><th class="num">大盤預估</th><th class="num">大盤實際</th><th class="num">個股命中</th></tr></thead><tbody>${rec.slice().reverse().map(([d, mp, ma, h, n]) => `<tr><td>${dayTxt(d)}</td><td class="num">${mp ?? "—"}%</td><td class="num ${ma > 0 ? "up" : ma < 0 ? "down" : ""}">${ma == null ? "—" : pct(ma)}</td><td class="num">${n ? `${h}/${n}（${Math.round(h / n * 100)}%）` : "—"}</td></tr>`).join("")}</tbody></table></div>` : `<p class="hint">命中率從 ${dayTxt(FC.target)} 開始記錄，累積幾個交易日後這裡會顯示每天的對錯。</p>`}
+    <p class="hint">怎麼算：大盤看美股（35%）、加權指數線形（20%）、漲跌家數（15%）、法人合計（15%）、新聞（15%）。個股看大盤連動（35%）、個股線形（25%）、法人（20%）、借券與融資券賣壓（10%）、近兩天新聞（10%）。機率限制在 25%–75%，因為短線本來就很難預測；50% 附近代表沒有明顯方向。這只是規則計分，不是保證，請搭配自己的判斷。</p></div>`;
+}
+
+/* ---------------- ETF 專區 ---------------- */
+const ETF_TYPES = ["國內股票", "國外股票", "主動式", "債券", "槓桿反向", "商品期貨", "其他"];
+function etfRow(s) {
+  const e = ETFI.etf[s.code] || {}, on = watch.has(s.code);
+  const d = document.createElement("details"); d.className = "stock etfrow"; d.id = "e" + s.code;
+  const ret = e.ret?.["1y"] ?? e.ret?.["6m"] ?? e.ret?.["3m"];
+  d.innerHTML = `<summary><button type="button" class="star" data-star="${s.code}" aria-pressed="${on}" aria-label="${on ? "移出" : "加入"}自選股">${on ? "★" : "☆"}</button><span class="s-name"><code>${s.code}</code>${esc(s.name)}<small>${esc(s.et)}</small></span><span class="s-price">${fmt(s.price)}<small class="${s.chg > 0 ? "up" : s.chg < 0 ? "down" : ""}">${s.chg > 0 ? "+" : ""}${fmt(s.chg)}</small></span><span class="e-k"><small>規模</small>${yiAum(e.aum)}</span><span class="e-k"><small>殖利率</small>${e.yld != null ? e.yld + "%" : "—"}</span><span class="e-k"><small>${e.ret?.["1y"] != null ? "近 1 年" : e.ret?.["6m"] != null ? "近 6 月" : "近 3 月"}</small><b class="${ret > 0 ? "up" : ret < 0 ? "down" : ""}">${ret != null ? pct(ret) : "—"}</b></span><span class="e-top">${esc((e.top || []).slice(0, 3).map(x => `${x[1]} ${x[2]}%`).join("、") || (e.idx || ""))}</span></summary><div class="body"></div>`;
+  d.addEventListener("toggle", () => { if (d.open) { const b = d.querySelector(".body"); b.innerHTML = stockBody(s, {row: ROWS.find(r => r.s === s)}); attachAll(b); } });
+  return d;
+}
+function renderETF() {
+  if (!DB) return;
+  const all = S.filter(s => s.etf), t = state.etfType || "all", q = (state.etfQ || "").trim().toLowerCase();
+  const cnt = {}; all.forEach(s => cnt[s.et] = (cnt[s.et] || 0) + 1);
+  $("etfTypes").innerHTML = `<button type="button" data-et="all" aria-pressed="${t === "all"}">全部 ${all.length}</button>` + ETF_TYPES.filter(k => cnt[k]).map(k => `<button type="button" data-et="${k}" aria-pressed="${t === k}">${k} ${cnt[k]}</button>`).join("");
+  let list = all.filter(s => t === "all" || s.et === t);
+  if (q) list = list.filter(s => { const e = ETFI.etf[s.code] || {}; return s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || (e.idx || "").toLowerCase().includes(q) || (e.issuer || "").includes(q) || (e.top || []).some(x => (x[1] || "").toLowerCase().includes(q) || x[0] === q); });
+  const E = c => ETFI.etf[c] || {};
+  const so = {aum: (x, y) => (E(y.code).aum || 0) - (E(x.code).aum || 0), vol: (x, y) => (y.vol || 0) - (x.vol || 0), yld: (x, y) => (E(y.code).yld ?? -1) - (E(x.code).yld ?? -1),
+    ret1y: (x, y) => (E(y.code).ret?.["1y"] ?? -999) - (E(x.code).ret?.["1y"] ?? -999), fee: (x, y) => (parseFloat(E(x.code).fee) || 9) - (parseFloat(E(y.code).fee) || 9),
+    new: (x, y) => (E(y.code).inc || "").localeCompare(E(x.code).inc || "")}[state.etfSort || "aum"];
+  list.sort(so);
+  $("etfSort").value = state.etfSort || "aum"; if (document.activeElement !== $("etfQ")) $("etfQ").value = state.etfQ || "";
+  const per = 20, pages = Math.max(1, Math.ceil(list.length / per)); state.etfPage = Math.min(Math.max(1, state.etfPage || 1), pages);
+  const p = state.etfPage, pg = `<span class="info">第 ${list.length ? (p - 1) * per + 1 : 0}–${Math.min(list.length, p * per)} 檔，共 ${list.length} 檔</span><div class="pages"><button type="button" data-ep="${p - 1}" ${p <= 1 ? "disabled" : ""}>上一頁</button><span class="info">${p} / ${pages}</span><button type="button" data-ep="${p + 1}" ${p >= pages ? "disabled" : ""}>下一頁</button></div>`;
+  $("etfPagerTop").innerHTML = pg; $("etfPagerBot").innerHTML = pg;
+  const box = $("etfList"); box.innerHTML = "";
+  if (!list.length) box.innerHTML = `<div class="empty">沒有符合的 ETF。</div>`;
+  const wrap = document.createElement("div"); wrap.className = "ind-list"; list.slice((p - 1) * per, p * per).forEach(s => wrap.appendChild(etfRow(s))); box.appendChild(wrap);
+  $("etfSub").textContent = `上市櫃全部 ${all.length} 檔 ETF：前十大持股、產業配置、規模、費用、配息與績效${ETFI.generated ? `（持股資料更新 ${ETFI.generated.slice(0, 10)}）` : ""}。搜尋可以打持股名稱，例如「台積電」找出持有它的 ETF。`;
+}
+
 /* ---------------- views ---------------- */
-const VIEWS = ["alloc", "list", "analyze", "mine", "account", "help"];
+const VIEWS = ["alloc", "list", "analyze", "forecast", "etf", "mine", "account", "help"];
 let view = "alloc";
 function show(v, scroll = true) {
   if (!VIEWS.includes(v)) v = "alloc";
@@ -711,7 +1021,9 @@ function show(v, scroll = true) {
   VIEWS.forEach(k => { $("view-" + k).hidden = k !== v; });
   document.querySelectorAll("#menu a").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   if (location.hash !== "#" + v) history.replaceState(null, "", "#" + v);
-  document.title = $("view-" + v).dataset.title + "｜預算選股台";
+  document.title = $("view-" + v).dataset.title + "｜股票分析網";
+  if (v === "forecast") renderForecast();
+  if (v === "etf") renderETF();
   if (scroll) window.scrollTo({top: 0});
 }
 
@@ -791,9 +1103,12 @@ function methodHTML() {
   <li><b>公司規模</b>：大型股市值 1,000 億以上、中型 200–1,000 億、小型 200 億以下。小型股流動性較差，掛單建議用限價。在「配置建議」可以複選只要大型、中型、小型股或 ETF，配置與類別看好度都只用你選的規模計算。</li>
   <li><b>上下游產業鏈</b>：取自證交所與櫃買中心合辦的「產業價值鏈資訊平台」，每週更新。卡片會列出這家公司所在的產業與環節、同環節的同業，以及上游、下游各環節的上市櫃公司（依推薦與評分排序，框線標示的是目前推薦清單裡的）。一家公司可能出現在好幾條產業鏈，可切換查看。</li>
   <li><b>配置類別與看好度</b>：每個題材（或官方產業）的看好度 0–100 ＝ 類別內前 3 檔平均評分（40%）＋ 推薦比例（20%）＋ 營收年增中位數（20%）＋ 法人買超比例（10%）＋ 近 20 日漲跌中位數（10%）。看好度 55 以上的前 4 名標「目前看好」。選了類別後，資金依你設的比例分給各類別，系統只在該類別裡挑評分高、預算買得起的股票；沒選就由系統在全市場挑。</li>
-  <li><b>預期波動</b>：年化波動假設低 18%、中 32%、高 50%，乘上持有時間（年）的平方根，得到這段期間的正常波動幅度。</li>
-  <li><b>波段模式（6 個月以內）</b>：資金分兩筆，現價下方 0.25 與 0.6 個波動幅度。停損在平均成本下方 1 個波動幅度（上限 15%），停利一、二是停損距離的 1.5 與 2.5 倍。持有天數到了還沒碰到停利一就出場。</li>
-  <li><b>長期模式（超過 6 個月）</b>：資金分三筆，現價、回檔 0.5 與 0.9 個波動幅度各 1/3（上限 40%）。最大虧損線上限 35%。漲到重新評估價時考慮先賣 1/3；月營收年增率連兩個月轉負就減碼一半。</li>
+  <li><b>進出場參考價（2026/10 改版）</b>：分兩筆各 50%。第一筆用現價；第二筆設在現價下方最近的支撐（20 日均線、近 20 日低點，長期再看 60 日均線），找不到支撐就用現價下方 1.2 個「平均日波動」（近 20 日每天收盤價變動的平均）。第二筆沒回檔到就不追。</li>
+  <li><b>停損</b>：波段（6 個月以內）設在近 20 日低點下方、長期設在近 60 日低點下方，再多留 0.3 個平均日波動；距離至少 1.5 個平均日波動（避免正常震盪就被洗出場），最多 15%（波段）或 25%（長期）。</li>
+  <li><b>停利與重新評估價</b>：用這檔近 60 日的日報酬標準差 × √持有天數，得到持有期間的正常波動幅度。波段的停利一＝平均成本＋1 個波動幅度、停利二＝1.8 個；長期的重新評估價＝平均成本＋1 個波動幅度（至少 12%）。途中若有前波高點，卡片會提醒那裡可能有賣壓。</li>
+  <li><b>短線動態與籌碼</b>：每張卡片會列出近 7 天新聞正負面、均線與 RSI、三大法人、借券賣出（法人放空的主要管道）、融資融券，以及主力分點的查詢連結；每一項都附上可以點開核對的來源。公開資料看得到賣壓從哪裡來，但無法判斷是不是有人「故意」壓低。</li>
+  <li><b>明日走向</b>：大盤＝美股與費半（35%）＋加權指數均線與 RSI（20%）＋漲跌家數（15%）＋三大法人合計（15%）＋市場新聞正負面（15%）；個股＝大盤連動（35%，依個股波動放大或縮小，半導體另看費半與台積電 ADR）＋個股線形（25%）＋法人（20%）＋借券與融資券賣壓（10%）＋近兩天新聞（10%）。每天收盤後與開盤前各算一次，並公開過去的命中率。</li>
+  <li><b>ETF</b>：收錄上市櫃全部 ETF，類型依證交所 ETF 基本資料與名稱判斷。前十大持股、產業配置、規模、費用、配息與績效來自 Yahoo 奇摩股市（投信每月公告的持股約落後 1–2 個月）。ETF 評分看規模、類型與走勢；槓桿反向 ETF 一律 1 分、不放進配置。</li>
   <li>所有價位依證交所升降單位取整。</li></ul>`;
 }
 
@@ -850,6 +1165,13 @@ function wire() {
     if (!(cost > 0) || !(qty > 0)) { alertMsg("請填入大於 0 的成本與股數。"); return; }
     try { await addHolding(code, cost, qty); $("holdForm").reset(); render(); } catch (err) { alertMsg("持股沒有存成功：" + err.message); }
   });
+  $("fcScope").addEventListener("change", e => { state.fcScope = e.target.value; renderForecast(); saveUI(); });
+  let fq; $("fcQ").addEventListener("input", () => { clearTimeout(fq); fq = setTimeout(renderForecast, 300); });
+  $("fcLists").addEventListener("click", e => { const b = e.target.closest("[data-fc]"); if (b) { $("fcQ").value = b.dataset.fc; renderForecast(); $("fcDetail").scrollIntoView({behavior: "smooth", block: "start"}); } });
+  $("etfTypes").addEventListener("click", e => { const b = e.target.closest("[data-et]"); if (b) { state.etfType = b.dataset.et; state.etfPage = 1; renderETF(); saveUI(); } });
+  $("etfSort").addEventListener("change", e => { state.etfSort = e.target.value; state.etfPage = 1; renderETF(); saveUI(); });
+  let eq; $("etfQ").addEventListener("input", e => { clearTimeout(eq); eq = setTimeout(() => { state.etfQ = e.target.value; state.etfPage = 1; renderETF(); }, 250); });
+  ["etfPagerTop", "etfPagerBot"].forEach(id => $(id).addEventListener("click", e => { const b = e.target.closest("button[data-ep]"); if (b && !b.disabled) { state.etfPage = +b.dataset.ep; renderETF(); $("etfTypes").scrollIntoView({behavior: "smooth", block: "start"}); } }));
   $("anForm").addEventListener("submit", e => { e.preventDefault(); analyze($("aCode").value, +$("aPrice").value || 0); });
   $("account").addEventListener("submit", async e => {
     e.preventDefault();
@@ -872,7 +1194,7 @@ function alertMsg(t) { const m = $("mineMsg"); m.textContent = t; m.classList.ad
 
 /* ---------------- boot ---------------- */
 async function boot() {
-  try { await loadData(); }
+  try { await Promise.all([loadData(), dataFetch("etf.json").then(j => { if (j && j.etf) ETFI = j; }).catch(() => {})]); }
   catch (e) { $("stamp").textContent = "資料載入失敗"; $("groups").innerHTML = `<div class="empty">${esc(e.message)}。GitHub Actions 第一次跑完後才會有資料。</div>`; return; }
   $("stamp").innerHTML = stampHTML();
   $("refreshBtn").addEventListener("click", e => doRefresh(e.currentTarget));

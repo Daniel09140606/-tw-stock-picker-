@@ -75,7 +75,7 @@ def fetch_one(code: str, mkt: str, price: float) -> dict | None:
         "full": loc(b.get("fundDisplayName")) or "",
         "mgr": loc(b.get("fundManagerName")) or "",
         "fee": b.get("managementfee"),
-        "cust": b.get("custodianfee"),
+        "cust": (b.get("custodianfee") or "")[:60],
         "inc": b.get("inceptionDate"),
         "divFreq": b.get("divCashFreq"),
         "site": (b.get("providerCompany") or {}).get("website"),
@@ -97,8 +97,9 @@ def fetch_one(code: str, mkt: str, price: float) -> dict | None:
         divs = ((obj or {}).get("data") or {}).get("dividends") or []
         cutoff = (dt.datetime.now(TPE) - dt.timedelta(days=365)).date().isoformat()
         recent = [(d.get("exDate", "")[:10], num(d.get("totalDividend")) or num((d.get("exDividend") or {}).get("cash")))
-                  for d in divs if d.get("recordType") == "SUB" and d.get("exDate")]
-        recent = [(d, v) for d, v in recent if v]
+                  for d in divs if d.get("recordType") == "SUB" and d.get("exDate") and not d.get("isUpcoming")
+                  and d.get("exDate", "")[:10] <= dt.datetime.now(TPE).date().isoformat()]   # 還沒除息的不算
+        recent = sorted({(d, v) for d, v in recent if v})   # 同一天重複的紀錄只算一次
         last12 = sum(v for d, v in recent if d >= cutoff)
         out["div12"] = round(last12, 4) if last12 else 0
         out["yld"] = round(last12 / price * 100, 2) if last12 and price else None
