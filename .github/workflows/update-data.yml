@@ -18,17 +18,24 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: 補近一個月的融資融券與借券資料（已有的會略過）
+        run: python scripts/backfill_chips.py --days 22 || echo "籌碼補資料失敗"
       - name: 抓資料並計算評分
         run: python scripts/build.py
       - name: 抓新聞與重大訊息（失敗不影響其他資料）
         run: python scripts/news.py || echo "新聞抓取失敗，沿用舊資料"
+      - name: ETF 持股、規模與配息（晚上那次才跑）
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 13 * * 1-5'
+        run: python scripts/etf.py || echo "ETF 資料抓取失敗，沿用舊資料"
+      - name: 明日走向
+        run: python scripts/forecast.py || echo "明日走向計算失敗"
       - name: 顯示各資料來源狀態
         if: always()
         run: cat data/fetch_log.json || true

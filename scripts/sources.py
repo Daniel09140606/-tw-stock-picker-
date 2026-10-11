@@ -336,4 +336,94 @@ def fetch_all(log: dict) -> dict[str, Any]:
         "profile": fetch_profile(log),
         "inst": fetch_institutional(date, log),
         "income": fetch_income(log),
+        "chips": fetch_chips(dt.date.fromisoformat(date), log) if date else {},
+        "etfBasic": fetch_etf_basic(log),
     }
+
+
+# ---------------------------------------------------------------- 籌碼：融資融券、借券賣出
+def _rows_fields(j: dict) -> tuple[list, list]:
+    """證交所／櫃買的 rwd JSON 有時資料在最上層，有時在 tables 裡。回傳 (fields, data)，挑有「代號」欄位的那張表。"""
+    cands = []
+    if j.get("fields"):
+        cands.append((j.get("fields"), j.get("data") or []))
+    for t in j.get("tables") or []:
+        if isinstance(t, dict) and t.get("fields"):
+            cands.append((t["fields"], t.get("data") or []))
+    for f, d in cands:
+        if any("代號" in str(x) for x in f) and d:
+            return [str(x).strip() for x in f], d
+    return [], []
+
+
+def fetch_chips(d: dt.date, log: dict) -> dict[str, dict]:
+    """某一天的融資餘額、融券餘額（張）、借券賣出（當日賣出、餘額，張）。
+    上市：MI_MARGN、TWT93U；上櫃：margin_bal、margin_sbl。抓不到就略過。"""
+    out: dict[str, dict] = {}
+
+    def put(code, **kw):
+        code = str(code).strip()
+        if code and code != "合計":
+            out.setdefault(code, {}).update({k: v for k, v in kw.items() if v is not None})
+
+    roc = _roc(d)
+    jobs = [
+        ("margin_上市", f"https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date={d:%Y%m%d}&selectType=STOCK&response=json", "margin", 1),
+        ("sbl_上市", f"https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date={d:%Y%m%d}&response=json", "sbl", 1000),
+        ("margin_上櫃", f"https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d={roc}", "margin", 1),
+        ("sbl_上櫃", f"https://www.tpex.org.tw/web/stock/margin_trading/margin_sbl/margin_sbl_result.php?l=zh-tw&o=json&d={roc}", "sbl", 1000),
+    ]
+    for name, url, kind, unit in jobs:
+        try:
+            j = get_json(url)
+            jd = str(j.get("date") or j.get("reportDate") or "").replace("/", "")
+            if jd and jd not in (f"{d:%Y%m%d}", roc.replace("/", "")):
+                log[name] = {"ok": False, "error": f"日期不符 {jd}"}
+                continue
+            f, rows = _rows_fields(j)
+            if not rows:
+                aa = j.get("aaData")
+                if aa:
+                    rows, f = aa, []
+            n = 0
+            bal = [i for i, x in enumerate(f) if "餘額" in x and "前" not in x]
+            mi, si = (bal[0], bal[1]) if len(bal) >= 2 else (6, 12)   # 上市：今日餘額在第 6、12 欄；上櫃欄位順序不同，用欄名找
+            for r in rows:
+                if not r or len(r) < 13:
+                    continue
+                code = r[0]
+                if kind == "margin":
+                    put(code, mb=num(r[mi]), sb=num(r[si]))
+                else:
+                    # 代號, 名稱, 融券(前日,賣出,買進,現券,今日餘額,限額), 借券賣出(前日餘額,當日賣出,當日還券,當日調整,當日餘額,...)
+                    ls, lb = num(r[9]), num(r[12])
+                    put(code, ls=None if ls is None else round(ls / unit), lb=None if lb is None else round(lb / unit))
+                n += 1
+            log[name] = {"ok": True, "rows": n}
+        except Exception as e:  # noqa: BLE001
+            log[name] = {"ok": False, "error": str(e)[:200]}
+    return out
+
+
+def fetch_etf_basic(log: dict) -> dict[str, dict]:
+    """上市 ETF 基本資料（類型、追蹤指數、成立日、經理公司）。"""
+    out: dict[str, dict] = {}
+    for r in _safe("etf_basic_上市", f"{TWSE}/opendata/t187ap47_L", log):
+        c = str(r.get("基金代號") or "").strip()
+        if c:
+            out[c] = {"type": r.get("基金類型") or "", "idx": r.get("標的指數/追蹤指數名稱") or "",
+                      "full": r.get("基金中文名稱") or "", "foreign": r.get("是否包含國外成分股") == "是",
+                      "list": roc_to_iso(r.get("上市日期"))}
+    return out
+
+
+def fetch_taiex_month(d: dt.date) -> list[tuple[str, float, float]]:
+    """加權指數某月每日收盤：[(日期, 收盤, 漲跌點)]。"""
+    j = get_json(f"https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date={d:%Y%m01}&response=json")
+    out = []
+    for row in j.get("data") or []:
+        iso = roc_to_iso(row[0])
+        c, ch = num(row[4]), num(row[5])
+        if iso and c:
+            out.append((iso, c, ch or 0.0))
+    return out

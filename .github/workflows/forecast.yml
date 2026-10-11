@@ -1,0 +1,38 @@
+name: 開盤前更新明日走向
+
+on:
+  schedule:
+    # 台灣時間週一到週五 07:50（UTC 23:50，前一天）：美股已收盤，用美股與夜間新聞更新
+    - cron: "50 23 * * 0-4"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: 更新新聞
+        run: python scripts/news.py || echo "新聞抓取失敗，沿用舊資料"
+      - name: 計算明日走向
+        run: python scripts/forecast.py
+      - name: 提交
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data site/data
+          git diff --cached --quiet && exit 0
+          git commit -m "明日走向（開盤前）$(date -u -d '+8 hours' +%F)"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push && exit 0; sleep 10; done
+          exit 1
