@@ -1,10 +1,10 @@
 {
-  "at": "2026-10-13T21:52+08:00",
-  "date": "2026-10-13",
+  "at": "2026-10-14T18:11+08:00",
+  "date": "2026-10-14",
   "sources": {
     "quotes_上市": {
       "ok": true,
-      "rows": 1381,
+      "rows": 1382,
       "keys": [
         "Date",
         "Code",
@@ -21,7 +21,7 @@
     },
     "quotes_上櫃": {
       "ok": true,
-      "rows": 12421,
+      "rows": 12466,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -44,8 +44,8 @@
       ]
     },
     "quote_dates": {
-      "上市": "2026-10-13",
-      "上櫃": "2026-10-13"
+      "上市": "2026-10-14",
+      "上櫃": "2026-10-14"
     },
     "fresh_上市": {
       "ok": true,
@@ -78,7 +78,7 @@
     },
     "revenue_上市": {
       "ok": true,
-      "rows": 869,
+      "rows": 1072,
       "keys": [
         "出表日期",
         "資料年月",
@@ -195,7 +195,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1341,
+      "rows": 1344,
       "cols": {
         "fi": [
           4,
@@ -208,7 +208,7 @@
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 895,
+      "rows": 901,
       "cols": {
         "fi": [
           10
@@ -602,19 +602,19 @@
     },
     "margin_上市": {
       "ok": true,
-      "rows": 1064
+      "rows": 0
     },
     "sbl_上市": {
       "ok": true,
-      "rows": 1303
+      "rows": 0
     },
     "margin_上櫃": {
       "ok": true,
-      "rows": 919
+      "rows": 0
     },
     "sbl_上櫃": {
       "ok": true,
-      "rows": 932
+      "rows": 0
     },
     "etf_basic_上市": {
       "ok": true,
