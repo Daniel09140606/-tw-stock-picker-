@@ -1,10 +1,10 @@
 {
-  "at": "2026-10-14T22:05+08:00",
-  "date": "2026-10-14",
+  "at": "2026-10-15T18:13+08:00",
+  "date": "2026-10-15",
   "sources": {
     "quotes_上市": {
       "ok": true,
-      "rows": 1382,
+      "rows": 1381,
       "keys": [
         "Date",
         "Code",
@@ -21,7 +21,7 @@
     },
     "quotes_上櫃": {
       "ok": true,
-      "rows": 12466,
+      "rows": 12565,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -44,12 +44,12 @@
       ]
     },
     "quote_dates": {
-      "上市": "2026-10-14",
-      "上櫃": "2026-10-14"
+      "上市": "2026-10-15",
+      "上櫃": "2026-10-15"
     },
     "fresh_上市": {
       "ok": true,
-      "rows": 1369
+      "rows": 1367
     },
     "valuation_上市": {
       "ok": true,
@@ -78,7 +78,7 @@
     },
     "revenue_上市": {
       "ok": true,
-      "rows": 1072,
+      "rows": 1073,
       "keys": [
         "出表日期",
         "資料年月",
@@ -98,7 +98,7 @@
     },
     "revenue_上櫃": {
       "ok": true,
-      "rows": 893,
+      "rows": 894,
       "keys": [
         "出表日期",
         "資料年月",
@@ -157,7 +157,7 @@
     },
     "profile_上櫃": {
       "ok": true,
-      "rows": 893,
+      "rows": 894,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -195,7 +195,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1347,
+      "rows": 1338,
       "cols": {
         "fi": [
           4,
@@ -208,7 +208,7 @@
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 901,
+      "rows": 898,
       "cols": {
         "fi": [
           10
@@ -411,7 +411,7 @@
     },
     "income_上櫃_ci": {
       "ok": true,
-      "rows": 885,
+      "rows": 886,
       "keys": [
         "Date",
         "Year",
@@ -602,19 +602,19 @@
     },
     "margin_上市": {
       "ok": true,
-      "rows": 1064
+      "rows": 0
     },
     "sbl_上市": {
       "ok": true,
-      "rows": 1303
+      "rows": 0
     },
     "margin_上櫃": {
       "ok": true,
-      "rows": 919
+      "rows": 0
     },
     "sbl_上櫃": {
       "ok": true,
-      "rows": 932
+      "rows": 0
     },
     "etf_basic_上市": {
       "ok": true,
