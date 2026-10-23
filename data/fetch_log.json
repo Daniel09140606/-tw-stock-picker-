@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-22T22:05+08:00",
+  "at": "2026-10-23T18:13+08:00",
   "date": "2026-10-22",
   "sources": {
     "quotes_上市": {
@@ -49,7 +49,11 @@
     },
     "fresh_上市": {
       "ok": true,
-      "rows": 1368
+      "rows": 0
+    },
+    "fresh_上櫃": {
+      "ok": true,
+      "rows": 0
     },
     "valuation_上市": {
       "ok": true,
@@ -411,7 +415,7 @@
     },
     "income_上櫃_ci": {
       "ok": true,
-      "rows": 885,
+      "rows": 888,
       "keys": [
         "Date",
         "Year",
