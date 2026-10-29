@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-29T18:26+08:00",
+  "at": "2026-10-29T22:23+08:00",
   "date": "2026-10-29",
   "sources": {
     "quotes_上市": {
@@ -195,7 +195,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1337,
+      "rows": 1340,
       "cols": {
         "fi": [
           4,
@@ -602,19 +602,19 @@
     },
     "margin_上市": {
       "ok": true,
-      "rows": 0
+      "rows": 1066
     },
     "sbl_上市": {
       "ok": true,
-      "rows": 0
+      "rows": 1308
     },
     "margin_上櫃": {
       "ok": true,
-      "rows": 0
+      "rows": 919
     },
     "sbl_上櫃": {
       "ok": true,
-      "rows": 0
+      "rows": 932
     },
     "etf_basic_上市": {
       "ok": true,
