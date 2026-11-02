@@ -1,10 +1,10 @@
 {
-  "at": "2026-10-30T22:23+08:00",
-  "date": "2026-10-30",
+  "at": "2026-11-02T18:34+08:00",
+  "date": "2026-11-02",
   "sources": {
     "quotes_上市": {
       "ok": true,
-      "rows": 1388,
+      "rows": 1389,
       "keys": [
         "Date",
         "Code",
@@ -20,40 +20,24 @@
       ]
     },
     "quotes_上櫃": {
-      "ok": true,
-      "rows": 13360,
-      "keys": [
-        "Date",
-        "SecuritiesCompanyCode",
-        "CompanyName",
-        "Close",
-        "Change",
-        "Open",
-        "High",
-        "Low",
-        "Average",
-        "TradingShares",
-        "TransactionAmount",
-        "TransactionNumber",
-        "LatestBidPrice",
-        "LatesAskPrice",
-        "Capitals",
-        "NextReferencePrice",
-        "NextLimitUp",
-        "NextLimitDown"
-      ]
+      "ok": false,
+      "error": "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes -> Response ended prematurely"
     },
     "quote_dates": {
-      "上市": "2026-10-30",
-      "上櫃": "2026-10-30"
+      "上市": "2026-11-02",
+      "上櫃": "2026-11-02"
     },
     "fresh_上市": {
       "ok": true,
-      "rows": 1375
+      "rows": 1373
+    },
+    "fresh_上櫃": {
+      "ok": true,
+      "rows": 6021
     },
     "valuation_上市": {
       "ok": true,
-      "rows": 1087,
+      "rows": 1088,
       "keys": [
         "Date",
         "Code",
@@ -118,7 +102,7 @@
     },
     "profile_上市": {
       "ok": true,
-      "rows": 1098,
+      "rows": 1099,
       "keys": [
         "出表日期",
         "公司代號",
@@ -195,7 +179,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1342,
+      "rows": 1340,
       "cols": {
         "fi": [
           4,
@@ -208,7 +192,7 @@
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 917,
+      "rows": 884,
       "cols": {
         "fi": [
           10
@@ -220,7 +204,7 @@
     },
     "income_上市_ci": {
       "ok": true,
-      "rows": 1052,
+      "rows": 47,
       "keys": [
         "出表日期",
         "年度",
@@ -259,7 +243,7 @@
     },
     "income_上市_fh": {
       "ok": true,
-      "rows": 13,
+      "rows": 1,
       "keys": [
         "出表日期",
         "年度",
@@ -290,7 +274,7 @@
     },
     "income_上市_basi": {
       "ok": true,
-      "rows": 10,
+      "rows": 1,
       "keys": [
         "出表日期",
         "年度",
@@ -321,7 +305,7 @@
     },
     "income_上市_bd": {
       "ok": true,
-      "rows": 3,
+      "rows": 1,
       "keys": [
         "出表日期",
         "年度",
@@ -352,7 +336,7 @@
     },
     "income_上市_ins": {
       "ok": true,
-      "rows": 5,
+      "rows": 1,
       "keys": [
         "出表日期",
         "年度",
@@ -384,7 +368,7 @@
     },
     "income_上市_mim": {
       "ok": true,
-      "rows": 4,
+      "rows": 1,
       "keys": [
         "出表日期",
         "年度",
@@ -411,7 +395,7 @@
     },
     "income_上櫃_ci": {
       "ok": true,
-      "rows": 889,
+      "rows": 37,
       "keys": [
         "Date",
         "Year",
@@ -512,7 +496,7 @@
     },
     "income_上櫃_bd": {
       "ok": true,
-      "rows": 7,
+      "rows": 1,
       "keys": [
         "Date",
         "年度",
@@ -602,19 +586,19 @@
     },
     "margin_上市": {
       "ok": true,
-      "rows": 1066
+      "rows": 0
     },
     "sbl_上市": {
       "ok": true,
-      "rows": 1308
+      "rows": 0
     },
     "margin_上櫃": {
       "ok": true,
-      "rows": 919
+      "rows": 0
     },
     "sbl_上櫃": {
       "ok": true,
-      "rows": 932
+      "rows": 0
     },
     "etf_basic_上市": {
       "ok": true,
