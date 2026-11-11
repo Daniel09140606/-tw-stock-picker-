@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-11T04:32+08:00",
-  "date": "2026-11-10",
+  "at": "2026-11-12T01:27+08:00",
+  "date": "2026-11-11",
   "sources": {
     "quotes_上市": {
       "ok": true,
@@ -21,7 +21,7 @@
     },
     "quotes_上櫃": {
       "ok": true,
-      "rows": 13715,
+      "rows": 13752,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -44,8 +44,8 @@
       ]
     },
     "quote_dates": {
-      "上市": "2026-11-09",
-      "上櫃": "2026-11-10"
+      "上市": "2026-11-10",
+      "上櫃": "2026-11-11"
     },
     "valuation_上市": {
       "ok": true,
@@ -94,7 +94,7 @@
     },
     "revenue_上櫃": {
       "ok": true,
-      "rows": 893,
+      "rows": 897,
       "keys": [
         "出表日期",
         "資料年月",
@@ -191,7 +191,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1349,
+      "rows": 1340,
       "cols": {
         "fi": [
           4,
@@ -204,7 +204,7 @@
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 897,
+      "rows": 905,
       "cols": {
         "fi": [
           10
@@ -216,7 +216,7 @@
     },
     "income_上市_ci": {
       "ok": true,
-      "rows": 294,
+      "rows": 391,
       "keys": [
         "出表日期",
         "年度",
@@ -286,7 +286,7 @@
     },
     "income_上市_basi": {
       "ok": true,
-      "rows": 2,
+      "rows": 4,
       "keys": [
         "出表日期",
         "年度",
@@ -348,7 +348,7 @@
     },
     "income_上市_ins": {
       "ok": true,
-      "rows": 1,
+      "rows": 2,
       "keys": [
         "出表日期",
         "年度",
@@ -407,7 +407,7 @@
     },
     "income_上櫃_ci": {
       "ok": true,
-      "rows": 213,
+      "rows": 285,
       "keys": [
         "Date",
         "Year",
@@ -508,7 +508,7 @@
     },
     "income_上櫃_bd": {
       "ok": true,
-      "rows": 2,
+      "rows": 3,
       "keys": [
         "Date",
         "年度",
@@ -598,15 +598,15 @@
     },
     "margin_上市": {
       "ok": true,
-      "rows": 1067
+      "rows": 1068
     },
     "sbl_上市": {
       "ok": true,
-      "rows": 1312
+      "rows": 1313
     },
     "margin_上櫃": {
       "ok": true,
-      "rows": 919
+      "rows": 920
     },
     "sbl_上櫃": {
       "ok": true,
@@ -614,7 +614,7 @@
     },
     "etf_basic_上市": {
       "ok": true,
-      "rows": 277,
+      "rows": 278,
       "keys": [
         "出表日期",
         "基金代號",
