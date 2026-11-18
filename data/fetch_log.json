@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-18T05:51+08:00",
-  "date": "2026-11-17",
+  "at": "2026-11-19T02:23+08:00",
+  "date": "2026-11-18",
   "sources": {
     "quotes_上市": {
       "ok": true,
@@ -21,7 +21,7 @@
     },
     "quotes_上櫃": {
       "ok": true,
-      "rows": 13870,
+      "rows": 13900,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -45,7 +45,7 @@
     },
     "quote_dates": {
       "上市": "2026-11-17",
-      "上櫃": "2026-11-17"
+      "上櫃": "2026-11-18"
     },
     "valuation_上市": {
       "ok": true,
@@ -61,7 +61,7 @@
     },
     "valuation_上櫃": {
       "ok": true,
-      "rows": 896,
+      "rows": 895,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -191,7 +191,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1358,
+      "rows": 1354,
       "cols": {
         "fi": [
           4,
@@ -204,7 +204,7 @@
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 902,
+      "rows": 899,
       "cols": {
         "fi": [
           10
@@ -598,11 +598,11 @@
     },
     "margin_上市": {
       "ok": true,
-      "rows": 1069
+      "rows": 1068
     },
     "sbl_上市": {
       "ok": true,
-      "rows": 1313
+      "rows": 1315
     },
     "margin_上櫃": {
       "ok": true,
