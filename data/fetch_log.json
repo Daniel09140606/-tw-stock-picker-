@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-19T05:31+08:00",
-  "date": "2026-11-18",
+  "at": "2026-11-20T02:40+08:00",
+  "date": "2026-11-19",
   "sources": {
     "quotes_上市": {
       "ok": true,
@@ -21,7 +21,7 @@
     },
     "quotes_上櫃": {
       "ok": true,
-      "rows": 13900,
+      "rows": 13940,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -45,7 +45,7 @@
     },
     "quote_dates": {
       "上市": "2026-11-18",
-      "上櫃": "2026-11-18"
+      "上櫃": "2026-11-19"
     },
     "valuation_上市": {
       "ok": true,
@@ -61,7 +61,7 @@
     },
     "valuation_上櫃": {
       "ok": true,
-      "rows": 895,
+      "rows": 894,
       "keys": [
         "Date",
         "SecuritiesCompanyCode",
@@ -114,7 +114,7 @@
     },
     "profile_上市": {
       "ok": true,
-      "rows": 1099,
+      "rows": 1098,
       "keys": [
         "出表日期",
         "公司代號",
@@ -191,7 +191,7 @@
     },
     "inst_上市": {
       "ok": true,
-      "rows": 1354,
+      "rows": 1360,
       "cols": {
         "fi": [
           4,
@@ -204,7 +204,7 @@
     },
     "inst_上櫃": {
       "ok": true,
-      "rows": 899,
+      "rows": 925,
       "cols": {
         "fi": [
           10
@@ -610,11 +610,11 @@
     },
     "sbl_上櫃": {
       "ok": true,
-      "rows": 936
+      "rows": 935
     },
     "etf_basic_上市": {
       "ok": true,
-      "rows": 278,
+      "rows": 280,
       "keys": [
         "出表日期",
         "基金代號",
